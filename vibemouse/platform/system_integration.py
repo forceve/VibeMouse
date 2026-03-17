@@ -32,6 +32,8 @@ _TERMINAL_CLASS_HINTS: set[str] = {
     "tabby",
     "hyper",
     "warp",
+    "iterm2",
+    "terminal",
     "windowsterminal",
     "wt",
     "cascadia_hosting_window_class",
@@ -86,6 +88,16 @@ if sys.platform.startswith("win"):
 else:
     _USER32 = None
     _KERNEL32 = None
+
+if sys.platform == "darwin":
+    try:
+        _APPLICATION_SERVICES = ctypes.CDLL(
+            "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
+        )
+    except OSError:
+        _APPLICATION_SERVICES = None
+else:
+    _APPLICATION_SERVICES = None
 
 
 class _Point(ctypes.Structure):
@@ -152,6 +164,22 @@ if _USER32 is not None and _KERNEL32 is not None:
     _KERNEL32.QueryFullProcessImageNameW.restype = wintypes.BOOL
     _KERNEL32.CloseHandle.argtypes = [wintypes.HANDLE]
     _KERNEL32.CloseHandle.restype = wintypes.BOOL
+
+class _CGPoint(ctypes.Structure):
+    _fields_ = [
+        ("x", ctypes.c_double),
+        ("y", ctypes.c_double),
+    ]
+
+
+if _APPLICATION_SERVICES is not None:
+    _APPLICATION_SERVICES.CGEventCreate.restype = ctypes.c_void_p
+    _APPLICATION_SERVICES.CGEventGetLocation.argtypes = [ctypes.c_void_p]
+    _APPLICATION_SERVICES.CGEventGetLocation.restype = _CGPoint
+    _APPLICATION_SERVICES.CFRelease.argtypes = [ctypes.c_void_p]
+    _APPLICATION_SERVICES.CFRelease.restype = None
+    _APPLICATION_SERVICES.CGWarpMouseCursorPosition.argtypes = [_CGPoint]
+    _APPLICATION_SERVICES.CGWarpMouseCursorPosition.restype = ctypes.c_int
 
 
 def is_terminal_window_payload(payload: Mapping[str, object]) -> bool:
@@ -510,6 +538,196 @@ class WindowsSystemIntegration:
         return int(focus_hwnd) if focus_hwnd else hwnd
 
 
+class MacOSSystemIntegration:
+    @property
+    def is_hyprland(self) -> bool:
+        return False
+
+    def send_shortcut(self, *, mod: str, key: str) -> bool:
+        modifiers = self._modifier_terms(mod)
+        if modifiers is None:
+            return False
+        key_code = self._key_code(key)
+        if key_code is not None:
+            action = f"key code {key_code}"
+        else:
+            keystroke = self._keystroke_literal(key)
+            if keystroke is None:
+                return False
+            action = f'keystroke "{keystroke}"'
+
+        if modifiers:
+            action += " using {" + ", ".join(modifiers) + "}"
+        return self._run_system_events_action(action, timeout=1.0)
+
+    def active_window(self) -> dict[str, object] | None:
+        output = _run_osascript(
+            [
+                'tell application "System Events"',
+                "set frontApp to first application process whose frontmost is true",
+                "set appName to name of frontApp",
+                'set windowTitle to ""',
+                "try",
+                "set windowTitle to name of front window of frontApp",
+                "end try",
+                'return appName & linefeed & windowTitle',
+                "end tell",
+            ],
+            timeout=1.2,
+        )
+        if output is None:
+            return None
+
+        parts = output.splitlines()
+        app_name = parts[0].strip() if parts else ""
+        title = parts[1].strip() if len(parts) > 1 else ""
+        if not app_name and not title:
+            return None
+        return {
+            "class": app_name,
+            "initialClass": app_name,
+            "process": app_name,
+            "title": title,
+        }
+
+    def cursor_position(self) -> tuple[int, int] | None:
+        if _APPLICATION_SERVICES is None:
+            return None
+        event = _APPLICATION_SERVICES.CGEventCreate(None)
+        if not event:
+            return None
+        try:
+            point = _APPLICATION_SERVICES.CGEventGetLocation(event)
+            return int(point.x), int(point.y)
+        finally:
+            _APPLICATION_SERVICES.CFRelease(event)
+
+    def move_cursor(self, *, x: int, y: int) -> bool:
+        if _APPLICATION_SERVICES is None:
+            return False
+        point = _CGPoint(float(x), float(y))
+        return _APPLICATION_SERVICES.CGWarpMouseCursorPosition(point) == 0
+
+    def switch_workspace(self, direction: str) -> bool:
+        key = "Left" if direction == "left" else "Right"
+        return self.send_shortcut(mod="CTRL", key=key)
+
+    def is_text_input_focused(self) -> bool | None:
+        output = _run_osascript(
+            [
+                'tell application "System Events"',
+                "set frontApp to first application process whose frontmost is true",
+                'set roleName to ""',
+                'set subroleName to ""',
+                "try",
+                "set focusedElement to value of attribute \"AXFocusedUIElement\" of frontApp",
+                "set roleName to value of attribute \"AXRole\" of focusedElement",
+                "try",
+                "set subroleName to value of attribute \"AXSubrole\" of focusedElement",
+                "end try",
+                "end try",
+                'return roleName & linefeed & subroleName & linefeed & (name of frontApp)',
+                "end tell",
+            ],
+            timeout=1.2,
+        )
+        if output is None:
+            return None
+
+        parts = [part.strip().lower() for part in output.splitlines()]
+        role = parts[0] if parts else ""
+        subrole = parts[1] if len(parts) > 1 else ""
+        process_name = parts[2] if len(parts) > 2 else ""
+        if role in {
+            "axtextfield",
+            "axtextarea",
+            "axsearchfield",
+            "axcombobox",
+        }:
+            return True
+        if subrole in {"axsearchfield", "axsecuretextfield"}:
+            return True
+        return is_terminal_window_payload(
+            {
+                "class": process_name,
+                "initialClass": process_name,
+                "process": process_name,
+                "title": "",
+            }
+        )
+
+    def send_enter_via_accessibility(self) -> bool | None:
+        return self.send_shortcut(mod="", key="Return")
+
+    def is_terminal_window_active(self) -> bool | None:
+        payload = self.active_window()
+        if payload is None:
+            return False
+        return is_terminal_window_payload(payload)
+
+    def paste_shortcuts(self, *, terminal_active: bool) -> tuple[tuple[str, str], ...]:
+        del terminal_active
+        return (("CMD", "V"),)
+
+    @staticmethod
+    def _modifier_terms(raw: str) -> list[str] | None:
+        mapping = {
+            "CTRL": "control down",
+            "CONTROL": "control down",
+            "SHIFT": "shift down",
+            "ALT": "option down",
+            "OPTION": "option down",
+            "WIN": "command down",
+            "META": "command down",
+            "CMD": "command down",
+            "SUPER": "command down",
+        }
+        resolved: list[str] = []
+        for token in raw.strip().upper().split():
+            if not token:
+                continue
+            value = mapping.get(token)
+            if value is None:
+                return None
+            resolved.append(value)
+        return resolved
+
+    @staticmethod
+    def _key_code(raw_key: str) -> int | None:
+        return {
+            "RETURN": 36,
+            "ENTER": 36,
+            "TAB": 48,
+            "SPACE": 49,
+            "ESC": 53,
+            "ESCAPE": 53,
+            "LEFT": 123,
+            "RIGHT": 124,
+            "DOWN": 125,
+            "UP": 126,
+        }.get(raw_key.strip().upper())
+
+    @staticmethod
+    def _keystroke_literal(raw_key: str) -> str | None:
+        normalized = raw_key.strip()
+        if len(normalized) != 1:
+            return None
+        return normalized.replace("\\", "\\\\").replace('"', '\\"')
+
+    @staticmethod
+    def _run_system_events_action(action: str, *, timeout: float) -> bool:
+        output = _run_osascript(
+            [
+                'tell application "System Events"',
+                action,
+                'return "ok"',
+                "end tell",
+            ],
+            timeout=timeout,
+        )
+        return output == "ok"
+
+
 class HyprlandSystemIntegration:
     @property
     def is_hyprland(self) -> bool:
@@ -627,6 +845,8 @@ def create_system_integration(
     normalized_platform = platform_name if platform_name is not None else sys.platform
     if normalized_platform.startswith("win"):
         return WindowsSystemIntegration()
+    if normalized_platform == "darwin":
+        return MacOSSystemIntegration()
 
     return NoopSystemIntegration()
 
@@ -714,3 +934,22 @@ class _GenerateKeyboardEventFn(Protocol):
 
 class _RequireVersionFn(Protocol):
     def __call__(self, namespace: str, version: str) -> None: ...
+
+
+def _run_osascript(lines: list[str], *, timeout: float) -> str | None:
+    if sys.platform != "darwin":
+        return None
+    try:
+        proc = subprocess.run(
+            ["osascript", *[item for line in lines for item in ("-e", line)]],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip()

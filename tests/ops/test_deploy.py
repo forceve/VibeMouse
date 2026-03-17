@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from vibemouse.deploy import (
     build_deploy_env,
+    render_macos_launch_agent,
     render_env_file,
     render_service_file,
     render_windows_launcher,
@@ -52,6 +53,28 @@ class DeployHelpersTests(unittest.TestCase):
         self.assertEqual(
             env_map["VIBEMOUSE_STATUS_FILE"],
             str(Path("C:/Users/Test/AppData/Local/VibeMouse/vibemouse-status.json")),
+        )
+
+    def test_build_deploy_env_uses_macos_status_file_on_macos(self) -> None:
+        with (
+            patch("vibemouse.deploy._is_windows", return_value=False),
+            patch("vibemouse.deploy._is_macos", return_value=True),
+            patch("vibemouse.deploy.Path.home", return_value=Path("/Users/Test")),
+        ):
+            env_map = build_deploy_env(
+                preset="stable",
+                openclaw_command="openclaw",
+                openclaw_agent="main",
+                openclaw_retries=None,
+            )
+
+        self.assertEqual(
+            env_map["VIBEMOUSE_STATUS_FILE"],
+            str(
+                Path(
+                    "/Users/Test/Library/Application Support/VibeMouse/vibemouse-status.json"
+                )
+            ),
         )
 
     def test_render_env_file_quotes_values(self) -> None:
@@ -100,6 +123,18 @@ class DeployHelpersTests(unittest.TestCase):
 
         self.assertIn("powershell.exe", startup)
         self.assertIn("vibemouse-launch.ps1", startup)
+
+    def test_render_macos_launch_agent_contains_shell_wrapper(self) -> None:
+        launch_agent = render_macos_launch_agent(
+            env_file=Path("/Users/test/Library/Application Support/VibeMouse/deploy.env"),
+            log_file=Path("/Users/test/Library/Logs/VibeMouse/service.log"),
+            exec_start='"/usr/local/bin/python3" -m vibemouse.main run',
+        )
+
+        self.assertIn("<string>/bin/sh</string>", launch_agent)
+        self.assertIn("io.vibemouse.agent", launch_agent)
+        self.assertIn("deploy.env", launch_agent)
+        self.assertIn("service.log", launch_agent)
 
 
 class DeployCommandTests(unittest.TestCase):
@@ -213,6 +248,36 @@ class DeployCommandTests(unittest.TestCase):
             self.assertTrue(env_file.exists())
             self.assertTrue(launcher_file.exists())
             self.assertTrue(startup_file.exists())
+            self.assertIn('VIBEMOUSE_OPENCLAW_AGENT="ops"', env_file.read_text())
+
+    def test_run_deploy_macos_writes_launch_agent_and_runs_doctor(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="vibemouse-deploy-") as tmp:
+            env_file = Path(tmp) / "deploy.env"
+            launch_agent_file = Path(tmp) / "io.vibemouse.agent.plist"
+            args = argparse.Namespace(
+                preset="stable",
+                env_file=str(env_file),
+                launch_agent_file=str(launch_agent_file),
+                log_file=str(Path(tmp) / "service.log"),
+                openclaw_command="openclaw --profile prod",
+                openclaw_agent="ops",
+                openclaw_retries=2,
+                exec_start="python -m vibemouse.main run",
+                skip_launchctl=True,
+                dry_run=False,
+            )
+
+            with (
+                patch("vibemouse.deploy._is_windows", return_value=False),
+                patch("vibemouse.deploy._is_macos", return_value=True),
+                patch("vibemouse.deploy.run_doctor", return_value=0) as run_doctor,
+            ):
+                rc = run_deploy(args)
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(run_doctor.call_count, 1)
+            self.assertTrue(env_file.exists())
+            self.assertTrue(launch_agent_file.exists())
             self.assertIn('VIBEMOUSE_OPENCLAW_AGENT="ops"', env_file.read_text())
 
     def test_run_deploy_rejects_negative_retry_override(self) -> None:

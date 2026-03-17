@@ -6,6 +6,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from html import escape
 from pathlib import Path
 from typing import cast
 
@@ -94,6 +95,17 @@ def configure_deploy_parser(parser: argparse.ArgumentParser) -> None:
             action="store_true",
             help="skip creating the Startup-folder entry",
         )
+    elif _is_macos():
+        _ = parser.add_argument(
+            "--launch-agent-file",
+            default=str(_default_macos_launch_agent_file()),
+            help="path to generated launchd plist",
+        )
+        _ = parser.add_argument(
+            "--skip-launchctl",
+            action="store_true",
+            help="skip launchctl bootstrap/kickstart operations",
+        )
     else:
         _ = parser.add_argument(
             "--service-file",
@@ -170,6 +182,37 @@ def run_deploy(args: argparse.Namespace) -> int:
         print("Running doctor checks...")
         return run_doctor()
 
+    if _is_macos():
+        launch_agent_path = Path(
+            str(getattr(args, "launch_agent_file", ""))
+        ).expanduser()
+        launch_agent_content = render_macos_launch_agent(
+            env_file=env_path,
+            log_file=log_path,
+            exec_start=exec_start,
+        )
+
+        if bool(getattr(args, "dry_run", False)):
+            print(f"[DRY-RUN] would write {env_path}")
+            print(f"[DRY-RUN] would write {launch_agent_path}")
+            print(f"[DRY-RUN] preset={preset}")
+            print(f"[DRY-RUN] exec_start={exec_start}")
+            return 0
+
+        _write_text(env_path, env_content)
+        _write_text(launch_agent_path, launch_agent_content)
+        print(f"Wrote {env_path}")
+        print(f"Wrote {launch_agent_path}")
+
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if not bool(getattr(args, "skip_launchctl", False)):
+            if not _run_launchctl_bootstrap(launch_agent_path):
+                return 1
+
+        print("Running doctor checks...")
+        return run_doctor()
+
     service_path = Path(str(getattr(args, "service_file", ""))).expanduser()
     service_content = render_service_file(
         env_file=env_path,
@@ -212,6 +255,8 @@ def build_deploy_env(
     status_file = (
         _default_windows_status_file()
         if _is_windows()
+        else _default_macos_status_file()
+        if _is_macos()
         else "%t/vibemouse-status.json"
     )
     base = {
@@ -318,6 +363,37 @@ def render_windows_startup_file(*, launcher_file: Path) -> str:
     )
 
 
+def render_macos_launch_agent(*, env_file: Path, log_file: Path, exec_start: str) -> str:
+    command = _macos_exec_wrapper(
+        env_file=env_file,
+        log_file=log_file,
+        exec_start=exec_start,
+    )
+    label = "io.vibemouse.agent"
+    entries = [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+        "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+        + "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">",
+        "<plist version=\"1.0\">",
+        "<dict>",
+        f"  <key>Label</key><string>{label}</string>",
+        "  <key>ProgramArguments</key>",
+        "  <array>",
+        "    <string>/bin/sh</string>",
+        "    <string>-lc</string>",
+        f"    <string>{escape(command)}</string>",
+        "  </array>",
+        "  <key>RunAtLoad</key><true/>",
+        "  <key>KeepAlive</key><true/>",
+        f"  <key>StandardOutPath</key><string>{escape(str(log_file))}</string>",
+        f"  <key>StandardErrorPath</key><string>{escape(str(log_file))}</string>",
+        "</dict>",
+        "</plist>",
+        "",
+    ]
+    return "\n".join(entries)
+
+
 def _quote_env_value(value: str) -> str:
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
@@ -366,6 +442,38 @@ def _run_systemctl(args: list[str]) -> bool:
     return False
 
 
+def _run_launchctl_bootstrap(service_path: Path) -> bool:
+    domain = f"gui/{os.getuid()}"
+    _ = _run_process(
+        ["launchctl", "bootout", domain, str(service_path)],
+        timeout=12.0,
+    )
+    bootstrap = _run_process(
+        ["launchctl", "bootstrap", domain, str(service_path)],
+        timeout=12.0,
+    )
+    if bootstrap is None:
+        print("Failed to run launchctl bootstrap")
+        return False
+    if bootstrap.returncode != 0:
+        stderr = bootstrap.stderr.strip()
+        print(stderr or "launchctl bootstrap failed")
+        return False
+
+    kickstart = _run_process(
+        ["launchctl", "kickstart", "-k", f"{domain}/io.vibemouse.agent"],
+        timeout=12.0,
+    )
+    if kickstart is None:
+        print("Failed to run launchctl kickstart")
+        return False
+    if kickstart.returncode != 0:
+        stderr = kickstart.stderr.strip()
+        print(stderr or "launchctl kickstart failed")
+        return False
+    return True
+
+
 def validate_openclaw_command(raw: str) -> bool:
     try:
         parts = shlex.split(raw)
@@ -378,6 +486,10 @@ def _is_windows() -> bool:
     return sys.platform.startswith("win")
 
 
+def _is_macos() -> bool:
+    return sys.platform == "darwin"
+
+
 def _default_env_file() -> Path:
     if _is_windows():
         return _windows_roaming_dir() / "VibeMouse" / "deploy.env"
@@ -387,11 +499,23 @@ def _default_env_file() -> Path:
 def _default_log_file() -> Path:
     if _is_windows():
         return _windows_local_dir() / "VibeMouse" / "service.log"
+    if _is_macos():
+        return Path.home() / "Library" / "Logs" / "VibeMouse" / "service.log"
     return Path.home() / ".local" / "state" / "vibemouse" / "service.log"
 
 
 def _default_windows_status_file() -> str:
     return str(_windows_local_dir() / "VibeMouse" / "vibemouse-status.json")
+
+
+def _default_macos_status_file() -> str:
+    return str(
+        Path.home()
+        / "Library"
+        / "Application Support"
+        / "VibeMouse"
+        / "vibemouse-status.json"
+    )
 
 
 def _default_windows_launcher_file() -> Path:
@@ -400,6 +524,10 @@ def _default_windows_launcher_file() -> Path:
 
 def _default_windows_startup_file() -> Path:
     return _windows_startup_dir() / "vibemouse.vbs"
+
+
+def _default_macos_launch_agent_file() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / "io.vibemouse.agent.plist"
 
 
 def _windows_roaming_dir() -> Path:
@@ -435,3 +563,30 @@ def _quote_shell_path(path: str) -> str:
 
 def _ps_single_quote(value: str) -> str:
     return value.replace("'", "''")
+
+
+def _macos_exec_wrapper(*, env_file: Path, log_file: Path, exec_start: str) -> str:
+    env_file_q = shlex.quote(str(env_file))
+    log_file_q = shlex.quote(str(log_file))
+    log_dir_q = shlex.quote(str(log_file.parent))
+    return (
+        f"set -a; [ -f {env_file_q} ] && . {env_file_q}; set +a; "
+        + f"mkdir -p {log_dir_q}; exec {exec_start} >> {log_file_q} 2>&1"
+    )
+
+
+def _run_process(
+    cmd: list[str],
+    *,
+    timeout: float,
+) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None

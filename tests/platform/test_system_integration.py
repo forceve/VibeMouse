@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from vibemouse.system_integration import (
     HyprlandSystemIntegration,
+    MacOSSystemIntegration,
     NoopSystemIntegration,
     WindowsSystemIntegration,
     create_system_integration,
@@ -42,9 +43,9 @@ class SystemIntegrationDetectionTests(unittest.TestCase):
         integration = create_system_integration(env={}, platform_name="win32")
         self.assertIsInstance(integration, WindowsSystemIntegration)
 
-    def test_factory_returns_noop_on_non_hyprland_macos(self) -> None:
+    def test_factory_returns_macos_integration_on_macos(self) -> None:
         integration = create_system_integration(env={}, platform_name="darwin")
-        self.assertIsInstance(integration, NoopSystemIntegration)
+        self.assertIsInstance(integration, MacOSSystemIntegration)
 
 
 class HyprlandSystemIntegrationTests(unittest.TestCase):
@@ -231,3 +232,36 @@ class WindowsSystemIntegrationTests(unittest.TestCase):
             send_shortcut.call_args.kwargs,
             {"mod": "CTRL WIN", "key": "Left"},
         )
+
+
+class MacOSSystemIntegrationTests(unittest.TestCase):
+    def test_macos_paste_shortcuts_use_command_v(self) -> None:
+        integration = MacOSSystemIntegration()
+        self.assertEqual(
+            integration.paste_shortcuts(terminal_active=True),
+            (("CMD", "V"),),
+        )
+        self.assertEqual(
+            integration.paste_shortcuts(terminal_active=False),
+            (("CMD", "V"),),
+        )
+
+    def test_macos_switch_workspace_uses_ctrl_arrow(self) -> None:
+        integration = MacOSSystemIntegration()
+        with patch.object(integration, "send_shortcut", return_value=True) as send_shortcut:
+            ok = integration.switch_workspace("right")
+
+        self.assertTrue(ok)
+        self.assertEqual(
+            send_shortcut.call_args.kwargs,
+            {"mod": "CTRL", "key": "Right"},
+        )
+
+    def test_macos_terminal_detection_uses_active_window_payload(self) -> None:
+        integration = MacOSSystemIntegration()
+        with patch.object(
+            integration,
+            "active_window",
+            return_value={"class": "iTerm2", "initialClass": "iTerm2", "title": "dev"},
+        ):
+            self.assertTrue(integration.is_terminal_window_active())

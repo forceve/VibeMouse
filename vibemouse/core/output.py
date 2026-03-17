@@ -4,6 +4,7 @@ import importlib
 import json
 import shlex
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from typing import Protocol, cast
@@ -48,6 +49,7 @@ class TextOutput:
         self._kb: _KeyboardController = controller_ctor()
         self._enter_key: object = key_holder.enter
         self._ctrl_key: object = key_holder.ctrl
+        self._cmd_key: object = getattr(key_holder, "cmd", key_holder.ctrl)
         self._shift_key: object = key_holder.shift
         self._insert_key: object = key_holder.insert
         self._atspi: object | None = load_atspi_module()
@@ -179,7 +181,30 @@ class TextOutput:
         ):
             return
 
-        self._send_ctrl_v_via_keyboard()
+        if sys.platform == "darwin":
+            self._send_cmd_v_via_keyboard()
+        else:
+            self._send_ctrl_v_via_keyboard()
+
+    def _send_cmd_v_via_keyboard(self) -> None:
+        pressed_cmd = False
+        pressed_v = False
+        try:
+            self._kb.press(self._cmd_key)
+            pressed_cmd = True
+            self._kb.press("v")
+            pressed_v = True
+        finally:
+            if pressed_v:
+                try:
+                    self._kb.release("v")
+                except Exception:
+                    pass
+            if pressed_cmd:
+                try:
+                    self._kb.release(self._cmd_key)
+                except Exception:
+                    pass
 
     def _send_ctrl_v_via_keyboard(self) -> None:
         pressed_ctrl = False

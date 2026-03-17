@@ -61,7 +61,7 @@ class KeyboardHotkeyListener:
         last_error_summary: str | None = None
         while not self._stop.is_set():
             try:
-                if sys.platform.startswith("win"):
+                if sys.platform.startswith("win") or sys.platform == "darwin":
                     self._run_pynput(timeout_s=self._rescan_interval_s)
                 else:
                     self._run_evdev()

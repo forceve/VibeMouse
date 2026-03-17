@@ -38,6 +38,11 @@ def run_doctor(*, apply_fixes: bool = False) -> int:
         checks.append(_check_windows_input_hooks())
         checks.append(_check_windows_startup_entry())
         checks.append(_check_windows_background_process())
+    elif sys.platform == "darwin":
+        checks.append(_check_macos_input_hooks())
+        checks.append(_check_macos_accessibility_permissions())
+        checks.append(_check_macos_launch_agent())
+        checks.append(_check_macos_background_process())
     else:
         checks.append(_check_input_device_permissions(config))
         checks.append(_check_hyprland_return_bind_conflict(config))
@@ -53,6 +58,9 @@ def run_doctor(*, apply_fixes: bool = False) -> int:
 
 def _apply_doctor_fixes() -> None:
     if sys.platform.startswith("win"):
+        return
+    if sys.platform == "darwin":
+        _ensure_macos_launch_agent_loaded()
         return
     _fix_hyprland_return_bind_conflict()
     _ensure_user_service_active()
@@ -445,6 +453,129 @@ def _check_windows_background_process() -> DoctorCheck:
     )
 
 
+def _check_macos_input_hooks() -> DoctorCheck:
+    failures: list[str] = []
+    for module_name in ("pynput.mouse", "pynput.keyboard"):
+        try:
+            _ = importlib.import_module(module_name)
+        except Exception as error:
+            failures.append(f"{module_name}: {error}")
+
+    if failures:
+        return DoctorCheck(
+            name="input-hooks",
+            status="fail",
+            detail="; ".join(failures),
+        )
+
+    return DoctorCheck(
+        name="input-hooks",
+        status="ok",
+        detail="pynput mouse and keyboard hooks import successfully",
+    )
+
+
+def _check_macos_accessibility_permissions() -> DoctorCheck:
+    script = (
+        'tell application "System Events"\n'
+        "get name of first application process whose frontmost is true\n"
+        "end tell\n"
+    )
+    probe = _run_subprocess(["osascript", "-e", script], timeout=6.0)
+    if probe is None:
+        return DoctorCheck(
+            name="accessibility",
+            status="warn",
+            detail="could not probe macOS accessibility permissions",
+        )
+
+    if probe.returncode == 0:
+        return DoctorCheck(
+            name="accessibility",
+            status="ok",
+            detail="System Events accessibility access is available",
+        )
+
+    detail = probe.stderr.strip() or probe.stdout.strip() or "accessibility probe failed"
+    return DoctorCheck(
+        name="accessibility",
+        status="warn",
+        detail=detail,
+    )
+
+
+def _check_macos_launch_agent() -> DoctorCheck:
+    launch_agent = _macos_launch_agent_file()
+    if not launch_agent.exists():
+        return DoctorCheck(
+            name="launch-agent",
+            status="warn",
+            detail=f"launch agent not found: {launch_agent}",
+        )
+
+    probe = _run_subprocess(["launchctl", "list"], timeout=8.0)
+    if probe is None or probe.returncode != 0:
+        return DoctorCheck(
+            name="launch-agent",
+            status="warn",
+            detail=f"launch agent file present: {launch_agent}",
+        )
+
+    if "io.vibemouse.agent" in probe.stdout:
+        return DoctorCheck(
+            name="launch-agent",
+            status="ok",
+            detail="launch agent is loaded: io.vibemouse.agent",
+        )
+
+    return DoctorCheck(
+        name="launch-agent",
+        status="warn",
+        detail=f"launch agent file exists but is not loaded: {launch_agent}",
+    )
+
+
+def _check_macos_background_process() -> DoctorCheck:
+    probe = _run_subprocess(["ps", "-ax", "-o", "command="], timeout=8.0)
+    if probe is None:
+        return DoctorCheck(
+            name="background-process",
+            status="warn",
+            detail="could not query running processes",
+        )
+
+    if probe.returncode != 0:
+        stderr = probe.stderr.strip()
+        return DoctorCheck(
+            name="background-process",
+            status="warn",
+            detail=stderr or "process query failed",
+        )
+
+    markers = (
+        "vibemouse.cli.main run",
+        "vibemouse.main run",
+        "vibemouse run",
+    )
+    lines = [
+        line.strip()
+        for line in probe.stdout.splitlines()
+        if line.strip() and any(marker in line for marker in markers)
+    ]
+    if lines:
+        return DoctorCheck(
+            name="background-process",
+            status="ok",
+            detail=f"detected {len(lines)} VibeMouse process(es)",
+        )
+
+    return DoctorCheck(
+        name="background-process",
+        status="warn",
+        detail="no running VibeMouse process detected",
+    )
+
+
 def _check_input_device_permissions(config: AppConfig | None) -> DoctorCheck:
     if not sys.platform.startswith("linux"):
         return DoctorCheck(
@@ -730,3 +861,29 @@ def _windows_startup_file() -> Path:
 
 def _windows_launcher_file() -> Path:
     return _windows_roaming_dir() / "VibeMouse" / "vibemouse-launch.ps1"
+
+
+def _ensure_macos_launch_agent_loaded() -> None:
+    launch_agent = _macos_launch_agent_file()
+    if not launch_agent.exists():
+        return
+
+    domain = f"gui/{os.getuid()}"
+    _ = _run_subprocess(
+        ["launchctl", "bootout", domain, str(launch_agent)],
+        timeout=8.0,
+    )
+    bootstrap = _run_subprocess(
+        ["launchctl", "bootstrap", domain, str(launch_agent)],
+        timeout=8.0,
+    )
+    if bootstrap is None or bootstrap.returncode != 0:
+        return
+    _ = _run_subprocess(
+        ["launchctl", "kickstart", "-k", f"{domain}/io.vibemouse.agent"],
+        timeout=8.0,
+    )
+
+
+def _macos_launch_agent_file() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / "io.vibemouse.agent.plist"
