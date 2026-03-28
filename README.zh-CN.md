@@ -24,39 +24,59 @@ VibeMouse 把高频语音工作流绑定到鼠标侧键：
 
 整体是事件驱动，按职责拆分：
 
-1. `vibemouse/main.py`
-   - CLI 入口（`run` / `doctor`）
-2. `vibemouse/app.py`
+1. `vibemouse/cli/main.py`
+   - CLI 入口（`run`、`agent run`、`listener run`、`doctor`、`deploy`）
+2. `vibemouse/core/app.py`
    - 编排按钮事件、录音状态、转写线程和输出路由
-3. `vibemouse/mouse_listener.py`
-   - 监听侧键与手势（优先 `evdev`，含回退）
-4. `vibemouse/audio.py`
+3. `vibemouse/listener/mouse_listener.py`
+   - 监听侧键与手势（Linux 用 `evdev`，Windows/macOS 用 `pynput`）
+4. `vibemouse/core/audio.py`
    - 录音并写入临时 WAV
-5. `vibemouse/transcriber.py`
+5. `vibemouse/core/transcriber.py`
    - SenseVoice 后端选择与识别
-6. `vibemouse/output.py`
+6. `vibemouse/core/output.py`
    - 输入 / 剪贴板 / OpenClaw 路由与失败回退
-7. `vibemouse/system_integration.py`
-   - 平台适配边界（当前 Hyprland，可扩展 Windows/macOS）
-8. `vibemouse/doctor.py`
+7. `vibemouse/platform/system_integration.py`
+   - 平台适配：`HyprlandSystemIntegration`、`WindowsSystemIntegration`、`MacOSSystemIntegration`
+8. `vibemouse/ops/doctor.py`
    - 内置自检（环境、OpenClaw、输入权限、冲突绑定）
+9. `vibemouse/ipc/`
+   - 子进程监听器模式的 IPC 通信（`vibemouse agent run --listener=child`）
+10. `vibemouse/bindings/`
+    - 动作绑定定义与解析器
 
-## 快速开始（Linux）
+## 快速开始
 
-### Ubuntu / Debian 依赖
+### Windows
 
-```bash
-sudo apt update
-sudo apt install -y python3-gi gir1.2-atspi-2.0 portaudio19-dev libsndfile1
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -U pip
+python -m pip install -e .
 ```
 
-### Arch 依赖
-
-```bash
-sudo pacman -Syu --needed python python-pip python-gobject portaudio libsndfile
+先跑诊断：
+```powershell
+vibemouse doctor
 ```
 
-### 安装
+启动：
+```powershell
+vibemouse
+```
+
+设置开机自启：
+```powershell
+vibemouse deploy
+```
+
+Windows 部署会写入：
+- `%APPDATA%\VibeMouse\deploy.env`
+- `%APPDATA%\VibeMouse\vibemouse-launch.ps1`
+- `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\vibemouse.vbs`
+
+### macOS
 
 ```bash
 python3 -m venv .venv
@@ -65,11 +85,44 @@ pip install -U pip
 pip install -e .
 ```
 
-### 运行
+首次运行时按提示授予「辅助功能」权限（焦点检测和快捷键发送依赖它）。
+
+诊断：
+```bash
+vibemouse doctor
+```
+
+启动：
+```bash
+vibemouse
+```
+
+设置 LaunchAgent：
+```bash
+vibemouse deploy
+```
+
+### Linux（Ubuntu / Debian）
+
+安装系统依赖：
+```bash
+sudo apt update
+sudo apt install -y python3-gi gir1.2-atspi-2.0 portaudio19-dev libsndfile1
+```
+
+### Linux（Arch）
 
 ```bash
-export VIBEMOUSE_BACKEND=funasr_onnx
-export VIBEMOUSE_DEVICE=cpu
+sudo pacman -Syu --needed python python-pip python-gobject portaudio libsndfile
+```
+
+### Linux 安装与运行
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e .
 vibemouse
 ```
 
@@ -78,7 +131,7 @@ vibemouse
 - 可选 PyTorch 后端（GPU/高级兜底）：`pip install -e ".[pt]"`
 - 可选 Intel NPU 依赖：`pip install -e ".[npu]"`
 
-### 一键自动部署（推荐）
+### 一键自动部署（Linux，推荐）
 
 ```bash
 bash scripts/auto-deploy.sh --preset stable
@@ -95,13 +148,8 @@ bash scripts/auto-deploy.sh --preset stable
 示例：
 
 ```bash
-# 稳定档
 bash scripts/auto-deploy.sh --preset stable
-
-# 低资源档
 bash scripts/auto-deploy.sh --preset low-resource
-
-# 指定你自己的 OpenClaw 助手
 bash scripts/auto-deploy.sh --preset stable --openclaw-agent ops
 ```
 
@@ -151,17 +199,28 @@ vibemouse doctor
 vibemouse doctor --fix
 ```
 
-当前检查项：
+分平台的检查项：
+
+**全平台：**
 - 配置加载是否有效
 - OpenClaw 命令是否可执行 + agent 是否存在
 - 麦克风输入设备可用性
-- Linux 输入设备权限 / 侧键能力
+
+**Linux：**
+- 输入设备权限 / 侧键能力
 - Hyprland 后侧键 Return 冲突绑定
 - `systemctl --user` 服务状态
 
-当前 `--fix` 自动修复项：
-- 自动禁用冲突的 Hyprland 侧键 Return 绑定
-- 尝试拉起处于 inactive 状态的 `vibemouse.service`
+**Windows：**
+- pynput 输入钩子可用性
+- 启动项存在性
+- 后台进程状态
+
+**macOS：**
+- pynput 输入钩子可用性
+- 辅助功能权限
+- LaunchAgent 存在性
+- 后台进程状态
 
 只要存在 `FAIL`，命令退出码就是非零，方便自动化检测。
 
@@ -179,10 +238,10 @@ vibemouse deploy --preset stable
 - `--openclaw-agent main`
 - `--openclaw-retries 2`
 - `--log-file ~/.local/state/vibemouse/service.log`
-- `--skip-systemctl`
+- `--skip-systemctl`（Linux）
 - `--dry-run`
 
-建议开启持久化调试日志：
+建议开启持久化调试日志（Linux）：
 
 ```bash
 tail -f ~/.local/state/vibemouse/service.log
@@ -202,19 +261,19 @@ tail -f ~/.local/state/vibemouse/service.log
 | `VIBEMOUSE_PREWARM_DELAY_S` | `0.0` | 启动后延迟执行 ASR 预热，改善初始响应速度 |
 | `VIBEMOUSE_STATUS_FILE` | `$XDG_RUNTIME_DIR/vibemouse-status.json` | 运行状态文件（状态栏读取） |
 
-完整配置以 `vibemouse/config.py` 为准。
+完整配置以 `vibemouse/config/schema.py` 为准。
 
 ## 故障排查（短版）
 
 ### 事故复盘："录音/手势/回车一起失灵"
 
-当你遇到“录音、右键手势、回车都失灵”时，最常见根因并不是服务挂掉，
+当你遇到"录音、右键手势、回车都失灵"时，最常见根因并不是服务挂掉，
 而是**鼠标侧键底层事件码不匹配**。
 
 典型现象：
 - `vibemouse.service` 显示 `active`
 - `hyprctl dispatch workspace e-1/e+1` 手动执行是 `ok`
-- 但侧键触发不到任何动作，体感像“全炸了”
+- 但侧键触发不到任何动作，体感像"全炸了"
 
 我们实战遇到的真实根因：
 1. 监听器只匹配了 `BTN_SIDE` / `BTN_EXTRA`
@@ -237,7 +296,7 @@ tail -f ~/.local/state/vibemouse/service.log
 
 如果前 1~3 项都通过但按钮仍无动作，请优先排查监听器事件兼容路径。
 
-### 录音时后侧键仍然发送回车
+### 录音时后侧键仍然发送回车（Linux/Hyprland）
 
 检查并移除 Hyprland 的硬绑定：
 
@@ -266,6 +325,10 @@ sudo usermod -aG input $USER
 # 需要重新登录
 ```
 
+### macOS：快捷键发送或焦点检测不工作
+
+打开「系统偏好设置 → 隐私与安全性 → 辅助功能」，确认终端（或 VibeMouse 进程）已授权。
+
 ## 给 AI 助手做平台适配
 
 请直接看这两份专用指南：
@@ -274,7 +337,7 @@ sudo usermod -aG input $USER
 - [`docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md`](./docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md)
 - [`docs/AI_DEBUG_RUNBOOK.md`](./docs/AI_DEBUG_RUNBOOK.md)
 
-里面包含：架构契约、依赖下载地址、平台适配流程、以及可直接复用的 AI 提示模板。
+里面包含：架构契约、依赖下载地址、部署流程、以及可直接复用的 AI 提示模板。
 
 ## License
 

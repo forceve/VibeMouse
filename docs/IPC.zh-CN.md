@@ -65,6 +65,7 @@ agent 也会把当前地址写入 `status.json` 的 `ipc_socket` 字段。
 | `workspace_left` | 切换到左侧工作区 |
 | `workspace_right` | 切换到右侧工作区 |
 | `reload_config` | 重新加载 `config.json` |
+| `doctor` | 运行环境自检 |
 | `shutdown` | 优雅关闭 agent |
 
 规范来源：[`shared/protocol/COMMANDS.md`](../shared/protocol/COMMANDS.md)

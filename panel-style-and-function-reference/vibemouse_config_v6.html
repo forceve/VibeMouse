@@ -1,0 +1,378 @@
+
+<div style="display:flex;align-items:center;justify-content:center;padding:2rem 0;min-height:540px;">
+  <div id="win" style="width:460px;background:#18181a;border:1px solid rgba(255,255,255,0.18);border-radius:16px;padding:24px;box-sizing:border-box;font-family:var(--font-sans);position:relative;overflow:hidden;">
+
+    <div style="position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,0.03) 0%,transparent 60%);pointer-events:none;border-radius:16px;"></div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;cursor:grab;user-select:none;" onmousedown="startDrag(event)">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:16px;">🖱️</span>
+        <span style="color:#fff;font-size:17px;font-weight:500;">Vibemouse Configuration</span>
+      </div>
+      <button onclick="dismissWin()" style="width:30px;height:30px;border-radius:50%;background:transparent;border:none;color:#666;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='transparent'">✕</button>
+    </div>
+
+    <div style="height:1px;background:rgba(255,255,255,0.1);margin:16px 0 20px;"></div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;">
+          <span style="font-size:15px;">🎙️</span>
+          <span style="color:#fff;font-size:15px;font-weight:500;">Listener</span>
+        </div>
+        <p id="statusText" style="margin:0 0 0 25px;font-size:12px;color:#555;transition:color 0.25s;">IPC commands only</p>
+      </div>
+      <div id="toggleTrack" onclick="toggleMode()" style="width:52px;height:28px;border-radius:14px;background:#2e2e31;border:1px solid rgba(255,255,255,0.12);cursor:pointer;position:relative;transition:background 0.2s;">
+        <div id="toggleThumb" style="width:22px;height:22px;border-radius:50%;background:#555;position:absolute;top:2px;left:3px;transition:left 0.2s,background 0.2s;"></div>
+      </div>
+    </div>
+
+    <div style="height:1px;background:rgba(255,255,255,0.07);margin-bottom:16px;"></div>
+
+    <div style="display:flex;align-items:center;gap:7px;margin-bottom:14px;">
+      <span style="font-size:14px;">⌨️</span>
+      <span style="color:#fff;font-size:14px;font-weight:500;">Keybindings</span>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:3px;" id="commandList"></div>
+
+    <div id="dismissedOverlay" style="display:none;position:absolute;inset:0;background:#18181a;border-radius:16px;align-items:center;justify-content:center;flex-direction:column;gap:10px;">
+      <span style="color:#444;font-size:13px;">Window closed</span>
+      <button onclick="restoreWin()" style="font-size:12px;color:#777;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:5px 14px;cursor:pointer;">Reopen</button>
+    </div>
+
+    <div id="kbOverlay" style="display:none;position:absolute;inset:0;background:rgba(24,24,26,0.96);border-radius:16px;align-items:center;justify-content:center;flex-direction:column;gap:10px;">
+      <span style="font-size:22px;">⌨️</span>
+      <span style="color:#e0e0e0;font-size:14px;font-weight:500;">Press any key combination</span>
+      <span style="color:#444;font-size:12px;">Modifier-only keys are ignored</span>
+      <button onclick="cancelCapture()" style="margin-top:8px;font-size:12px;color:#777;background:transparent;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:5px 12px;cursor:pointer;">Cancel</button>
+    </div>
+
+    <div id="msOverlay" style="display:none;position:absolute;inset:0;background:rgba(24,24,26,0.96);border-radius:16px;flex-direction:column;align-items:center;justify-content:center;gap:14px;">
+      <span style="font-size:22px;">🖱️</span>
+      <div style="text-align:center;">
+        <p id="msHint" style="margin:0 0 4px;color:#e0e0e0;font-size:14px;font-weight:500;">Click, combine, or drag below</p>
+        <p id="msSubhint" style="margin:0;color:#444;font-size:12px;">MMB · X1 · X2 · LMB+RMB · any+modifier · drag</p>
+      </div>
+
+      <!-- live held-key pills -->
+      <div id="heldPills" style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;min-height:24px;max-width:300px;"></div>
+
+      <div id="gestureArea" style="width:180px;height:180px;border-radius:16px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);position:relative;cursor:crosshair;overflow:hidden;" oncontextmenu="return false;">
+        <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,0.06);transform:translateX(-50%);pointer-events:none;"></div>
+        <div style="position:absolute;top:50%;left:0;right:0;height:1px;background:rgba(255,255,255,0.06);transform:translateY(-50%);pointer-events:none;"></div>
+        <div id="gArrow" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:40px;color:#2a2a2e;pointer-events:none;transition:color 0.08s;">·</div>
+        <canvas id="gCanvas" style="position:absolute;inset:0;pointer-events:none;" width="180" height="180"></canvas>
+      </div>
+
+      <div id="gestureResult" style="font-size:13px;font-weight:500;color:transparent;min-height:20px;"></div>
+      <div id="msError" style="display:none;font-size:12px;color:#e0a040;padding:4px 10px;background:rgba(224,160,64,0.08);border-radius:6px;border:1px solid rgba(224,160,64,0.2);"></div>
+      <button onclick="cancelCapture()" style="font-size:12px;color:#777;background:transparent;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:5px 12px;cursor:pointer;">Cancel</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const BTN_MAP={0:'LMB',1:'MMB',2:'RMB',3:'X1',4:'X2'};
+const BTN_ORDER=['LMB','RMB','MMB','X1','X2'];
+const DIR_ARROWS={U:'↑',D:'↓',L:'←',R:'→'};
+
+const commands=[
+  {label:'Voice Transcribe',type:'kb',key:'[ Ctrl ] + [ Alt ] + [ V ]',ipc:'vibemouse.voice_transcribe'},
+  {label:'Gesture Area',    type:'kb',key:'[ Win ] + [ Tab ]',          ipc:'vibemouse.gesture_area'},
+  {label:'Command C',       type:'kb',key:'[ Ctrl ] + [ Alt ] + [ C ]',ipc:'vibemouse.command_c'},
+  {label:'Command D',       type:'ms',key:'[ RMB ] + [ ↓ ]',           ipc:'vibemouse.command_d'},
+  {label:'Command E',       type:'ms',key:'[ LMB ] + [ RMB ]',         ipc:'vibemouse.command_e'},
+  {label:'Command F',       type:'ms',key:'[ Ctrl ] + [ X1 ]',         ipc:'vibemouse.command_f'},
+];
+
+let modeOn=false, captureIndex=-1;
+// held state
+let heldBtns=new Set(), heldMods=new Set();
+let peakBtns=new Set(); // max simultaneous buttons during this gesture
+let gOrigin=null, gDown=false, gPath=[];
+let dragStart=null, winPos={x:0,y:0};
+
+function buildList(){
+  const list=document.getElementById('commandList');
+  list.innerHTML='';
+  commands.forEach((cmd,i)=>{
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:8px;transition:background 0.15s;gap:8px;';
+    row.onmouseover=()=>row.style.background='rgba(255,255,255,0.04)';
+    row.onmouseout=()=>row.style.background='transparent';
+    const lbl=document.createElement('span');
+    lbl.textContent=cmd.label;
+    lbl.style.cssText='color:#a0a0a0;font-size:13px;flex:1;';
+    const right=document.createElement('div');
+    right.style.cssText='display:flex;align-items:center;gap:6px;';
+    if(modeOn){
+      const tog=document.createElement('div');
+      tog.title=cmd.type==='kb'?'Switch to mouse':'Switch to keyboard';
+      tog.textContent=cmd.type==='kb'?'⌨️':'🖱️';
+      tog.style.cssText='font-size:13px;cursor:pointer;opacity:0.35;padding:3px;border-radius:4px;transition:opacity 0.15s,background 0.15s;';
+      tog.onmouseover=()=>{tog.style.opacity='0.9';tog.style.background='rgba(255,255,255,0.08)';};
+      tog.onmouseout=()=>{tog.style.opacity='0.35';tog.style.background='transparent';};
+      tog.onclick=(e)=>{e.stopPropagation();switchType(i);};
+      const chip=document.createElement('div');
+      chip.style.cssText='background:rgba(255,255,255,0.13);border:1px solid rgba(255,255,255,0.15);border-radius:6px;padding:5px 11px;cursor:pointer;transition:border-color 0.15s,background 0.15s;min-width:140px;text-align:center;';
+      chip.onmouseover=()=>{chip.style.borderColor='rgba(255,255,255,0.32)';chip.style.background='rgba(255,255,255,0.18)';};
+      chip.onmouseout=()=>{chip.style.borderColor='rgba(255,255,255,0.15)';chip.style.background='rgba(255,255,255,0.13)';};
+      chip.onclick=()=>startCapture(i);
+      const kt=document.createElement('span');
+      kt.textContent=cmd.key;
+      kt.style.cssText='color:#e0e0e0;font-size:12px;font-weight:500;';
+      chip.appendChild(kt);
+      right.appendChild(tog); right.appendChild(chip);
+    } else {
+      const chip=document.createElement('div');
+      chip.style.cssText='background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:6px;padding:5px 11px;min-width:140px;text-align:center;';
+      const kt=document.createElement('span');
+      kt.textContent=cmd.ipc;
+      kt.style.cssText='color:#4a4a50;font-size:12px;font-family:var(--font-mono);';
+      chip.appendChild(kt);
+      right.appendChild(chip);
+    }
+    row.appendChild(lbl); row.appendChild(right);
+    list.appendChild(row);
+  });
+}
+
+function switchType(i){
+  commands[i].type=commands[i].type==='kb'?'ms':'kb';
+  commands[i].key='[ — ]';
+  buildList();
+}
+
+function startCapture(i){
+  captureIndex=i;
+  if(commands[i].type==='kb'){
+    document.getElementById('kbOverlay').style.display='flex';
+    document.addEventListener('keydown',onKey);
+  } else {
+    resetGestureUI();
+    document.getElementById('msOverlay').style.display='flex';
+    bindGestureArea();
+  }
+}
+
+function bindGestureArea(){
+  const area=document.getElementById('gestureArea');
+  area.addEventListener('mousedown',onGDown);
+  area.addEventListener('contextmenu',e=>e.preventDefault());
+}
+
+function cancelCapture(){
+  document.getElementById('kbOverlay').style.display='none';
+  document.getElementById('msOverlay').style.display='none';
+  document.removeEventListener('keydown',onKey);
+  const area=document.getElementById('gestureArea');
+  area.onmousedown=null;
+  document.removeEventListener('mousemove',onGMove);
+  document.removeEventListener('mouseup',onGUp);
+  heldBtns.clear(); heldMods.clear(); peakBtns.clear();
+  gDown=false; gOrigin=null; gPath=[];
+  captureIndex=-1;
+}
+
+function onKey(e){
+  if(['Control','Alt','Shift','Meta'].includes(e.key)) return;
+  e.preventDefault();
+  let parts=[];
+  if(e.ctrlKey)  parts.push('[ Ctrl ]');
+  if(e.altKey)   parts.push('[ Alt ]');
+  if(e.shiftKey) parts.push('[ Shift ]');
+  if(e.metaKey)  parts.push('[ Win ]');
+  parts.push('[ '+(e.key.length===1?e.key.toUpperCase():e.key)+' ]');
+  if(captureIndex>=0) commands[captureIndex].key=parts.join(' + ');
+  document.removeEventListener('keydown',onKey);
+  document.getElementById('kbOverlay').style.display='none';
+  captureIndex=-1;
+  buildList();
+}
+
+function getModsFromEvent(e){
+  const m=new Set();
+  if(e.ctrlKey)  m.add('Ctrl');
+  if(e.altKey)   m.add('Alt');
+  if(e.shiftKey) m.add('Shift');
+  if(e.metaKey)  m.add('Win');
+  return m;
+}
+
+function renderPills(){
+  const el=document.getElementById('heldPills');
+  el.innerHTML='';
+  // mods first
+  [...heldMods].forEach(m=>{
+    const p=document.createElement('span');
+    p.textContent='[ '+m+' ]';
+    p.style.cssText='font-size:11px;font-weight:500;color:#a0a0a0;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:4px;padding:2px 7px;';
+    el.appendChild(p);
+  });
+  // btns in canonical order
+  BTN_ORDER.filter(b=>heldBtns.has(b)).forEach(b=>{
+    const p=document.createElement('span');
+    p.textContent='[ '+b+' ]';
+    p.style.cssText='font-size:11px;font-weight:500;color:#e0e0e0;background:rgba(255,255,255,0.13);border:1px solid rgba(255,255,255,0.2);border-radius:4px;padding:2px 7px;';
+    el.appendChild(p);
+  });
+}
+
+function onGDown(e){
+  e.preventDefault();
+  const btn=BTN_MAP[e.button]||'LMB';
+  heldBtns.add(btn);
+  heldMods=getModsFromEvent(e);
+  peakBtns.add(btn);
+  // first button down starts gesture tracking
+  if(!gDown){
+    gDown=true;
+    const rect=e.currentTarget.getBoundingClientRect();
+    gOrigin={cx:e.clientX, cy:e.clientY,
+             x:e.clientX-rect.left, y:e.clientY-rect.top};
+    gPath=[{x:gOrigin.x, y:gOrigin.y}];
+    document.addEventListener('mousemove',onGMove);
+    document.addEventListener('mouseup',onGUp);
+  }
+  document.getElementById('msError').style.display='none';
+  renderPills();
+}
+
+function onGMove(e){
+  if(!gDown) return;
+  const area=document.getElementById('gestureArea');
+  const rect=area.getBoundingClientRect();
+  const x=Math.max(0,Math.min(180,e.clientX-rect.left));
+  const y=Math.max(0,Math.min(180,e.clientY-rect.top));
+  gPath.push({x,y});
+
+  const cv=document.getElementById('gCanvas');
+  const ctx=cv.getContext('2d');
+  ctx.clearRect(0,0,180,180);
+  if(gPath.length>1){
+    ctx.beginPath();
+    ctx.moveTo(gPath[0].x,gPath[0].y);
+    for(let i=1;i<gPath.length;i++) ctx.lineTo(gPath[i].x,gPath[i].y);
+    ctx.strokeStyle='rgba(74,222,128,0.35)';
+    ctx.lineWidth=2; ctx.lineCap='round'; ctx.lineJoin='round';
+    ctx.stroke();
+  }
+
+  const dx=e.clientX-gOrigin.cx, dy=e.clientY-gOrigin.cy;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  const arrow=document.getElementById('gArrow');
+  if(dist>60){
+    const dir=getDir(dx,dy);
+    arrow.textContent=DIR_ARROWS[dir];
+    arrow.style.color='#4ade80';
+  } else {
+    arrow.textContent='·';
+    arrow.style.color='#555';
+  }
+}
+
+function onGUp(e){
+  if(!gDown) return;
+  const btn=BTN_MAP[e.button]||'LMB';
+  heldBtns.delete(btn);
+
+  // wait until ALL buttons released
+  if(heldBtns.size>0) return;
+
+  gDown=false;
+  document.removeEventListener('mousemove',onGMove);
+  document.removeEventListener('mouseup',onGUp);
+
+  const dx=e.clientX-gOrigin.cx, dy=e.clientY-gOrigin.cy;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  const DEAD=60;
+
+  // sort peak buttons canonically
+  const btns=BTN_ORDER.filter(b=>peakBtns.has(b));
+  const mods=[...heldMods]; // mods at time of first down (already captured)
+
+  // reject bare single LMB or bare single RMB
+  const isBare=mods.length===0 && btns.length===1 && (btns[0]==='LMB'||btns[0]==='RMB') && dist<=DEAD;
+  if(isBare){
+    document.getElementById('msError').textContent='LMB and RMB alone are not supported';
+    document.getElementById('msError').style.display='block';
+    resetGestureUI();
+    heldBtns.clear(); peakBtns.clear();
+    bindGestureArea();
+    return;
+  }
+
+  let parts=[...mods.map(m=>'[ '+m+' ]'), ...btns.map(b=>'[ '+b+' ]')];
+  if(dist>DEAD) parts.push('[ '+DIR_ARROWS[getDir(dx,dy)]+' ]');
+
+  commitCapture(parts.join(' + '));
+}
+
+function commitCapture(keyStr){
+  if(captureIndex>=0) commands[captureIndex].key=keyStr;
+  document.getElementById('gestureResult').textContent=keyStr;
+  document.getElementById('gestureResult').style.color='#4ade80';
+  heldBtns.clear(); peakBtns.clear(); heldMods.clear();
+  setTimeout(()=>{
+    document.getElementById('msOverlay').style.display='none';
+    captureIndex=-1;
+    buildList();
+  },350);
+}
+
+function getDir(dx,dy){
+  return Math.abs(dx)>Math.abs(dy)?(dx>0?'R':'L'):(dy>0?'D':'U');
+}
+
+function resetGestureUI(){
+  document.getElementById('gArrow').textContent='·';
+  document.getElementById('gArrow').style.color='#2a2a2e';
+  document.getElementById('gestureResult').style.color='transparent';
+  document.getElementById('gestureResult').textContent='';
+  document.getElementById('msError').style.display='none';
+  document.getElementById('msHint').textContent='Click, combine, or drag below';
+  document.getElementById('msHint').style.color='#e0e0e0';
+  document.getElementById('heldPills').innerHTML='';
+  document.getElementById('gCanvas').getContext('2d').clearRect(0,0,180,180);
+  gPath=[];
+}
+
+function toggleMode(){
+  modeOn=!modeOn;
+  const track=document.getElementById('toggleTrack'), thumb=document.getElementById('toggleThumb');
+  const status=document.getElementById('statusText');
+  if(modeOn){
+    track.style.background='#14532d'; thumb.style.left='27px'; thumb.style.background='#4ade80';
+    status.textContent='Child Process Active'; status.style.color='#4ade80';
+  } else {
+    track.style.background='#2e2e31'; thumb.style.left='3px'; thumb.style.background='#555';
+    status.textContent='IPC commands only'; status.style.color='#555';
+  }
+  buildList();
+}
+
+function dismissWin(){document.getElementById('dismissedOverlay').style.display='flex';}
+function restoreWin(){document.getElementById('dismissedOverlay').style.display='none';}
+
+function startDrag(e){
+  if(e.target.closest('button')||e.target.closest('[onclick]')) return;
+  dragStart={mx:e.clientX,my:e.clientY,wx:winPos.x,wy:winPos.y};
+  document.addEventListener('mousemove',onDrag);
+  document.addEventListener('mouseup',stopDrag);
+}
+function onDrag(e){
+  if(!dragStart) return;
+  winPos.x=dragStart.wx+(e.clientX-dragStart.mx);
+  winPos.y=dragStart.wy+(e.clientY-dragStart.my);
+  document.getElementById('win').style.transform=`translate(${winPos.x}px,${winPos.y}px)`;
+}
+function stopDrag(){
+  dragStart=null;
+  document.removeEventListener('mousemove',onDrag);
+  document.removeEventListener('mouseup',stopDrag);
+}
+
+buildList();
+</script>

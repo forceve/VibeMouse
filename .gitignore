@@ -3,6 +3,7 @@
 .ruff_cache/
 .pytest_cache/
 .mypy_cache/
+.history/
 tmp/
 iic/
 build/
@@ -10,6 +11,15 @@ dist/
 *.egg-info/
 __pycache__/
 *.py[cod]
+*.log
+
+# Local tool and editor files
+.claude/
+prmessages.md
+
+# .NET build artifacts
+**/bin/
+**/obj/
 
 # Temporary platform port-integration snapshots kept under repo root
 /windows-port/

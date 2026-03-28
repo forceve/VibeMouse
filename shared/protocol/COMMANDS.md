@@ -11,5 +11,6 @@ Semantic commands that can be sent to the agent via IPC or resolved from input e
 | `send_enter` | Send Enter key to focused input |
 | `workspace_left` | Switch workspace left (e.g. Hyprland) |
 | `workspace_right` | Switch workspace right |
+| `doctor` | Run environment diagnostics |
 | `reload_config` | Reload config.json |
 | `shutdown` | Gracefully shut down the agent |

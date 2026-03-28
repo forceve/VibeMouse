@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -11,6 +12,7 @@ from vibemouse.bindings.actions import command_for_legacy_gesture_action
 from vibemouse.bindings.resolver import BindingResolver
 from vibemouse.core.audio import AudioRecorder, AudioRecording
 from vibemouse.core.commands import (
+    COMMAND_DOCTOR,
     COMMAND_NOOP,
     COMMAND_RELOAD_CONFIG,
     COMMAND_SEND_ENTER,
@@ -30,6 +32,7 @@ from vibemouse.core.transcriber import SenseVoiceTranscriber
 from vibemouse.ipc.server import AgentCommandServer, IPCServer
 from vibemouse.listener.keyboard_listener import KeyboardHotkeyListener
 from vibemouse.listener.mouse_listener import SideButtonListener
+from vibemouse.ops.doctor import run_doctor
 from vibemouse.platform.system_integration import (
     SystemIntegration,
     create_system_integration,
@@ -39,6 +42,23 @@ from vibemouse.platform.system_integration import (
 ListenerMode = Literal["inline", "child", "off"]
 TranscriptionTarget = Literal["default", "openclaw"]
 _LOG = logging.getLogger(__name__)
+
+
+def _set_thread_low_priority() -> None:
+    """Lower the current thread's scheduling priority to reduce system lag."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            THREAD_PRIORITY_LOWEST = -2
+            ctypes.windll.kernel32.SetThreadPriority(
+                ctypes.windll.kernel32.GetCurrentThread(),
+                THREAD_PRIORITY_LOWEST,
+            )
+        else:
+            os.nice(10)
+    except Exception:
+        pass
 
 
 class VoiceMouseApp:
@@ -202,6 +222,9 @@ class VoiceMouseApp:
             return
         if command_name == COMMAND_RELOAD_CONFIG:
             self._reload_config()
+            return
+        if command_name == COMMAND_DOCTOR:
+            run_doctor()
             return
         if command_name == COMMAND_SHUTDOWN:
             self._request_shutdown()
@@ -462,6 +485,7 @@ class VoiceMouseApp:
             if self._stop_event.wait(timeout=delay_s):
                 return
 
+        _set_thread_low_priority()
         try:
             self._transcriber.prewarm()
             _LOG.info("Transcriber prewarm complete")

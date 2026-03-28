@@ -5,6 +5,7 @@ from typing import Final
 
 
 COMMAND_NOOP: Final = "noop"
+COMMAND_DOCTOR: Final = "doctor"
 COMMAND_RELOAD_CONFIG: Final = "reload_config"
 COMMAND_SEND_ENTER: Final = "send_enter"
 COMMAND_SHUTDOWN: Final = "shutdown"

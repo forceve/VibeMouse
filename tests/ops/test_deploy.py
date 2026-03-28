@@ -208,6 +208,7 @@ class DeployCommandTests(unittest.TestCase):
 
             with (
                 patch("vibemouse.deploy._is_windows", return_value=False),
+                patch("vibemouse.deploy._is_macos", return_value=False),
                 patch("vibemouse.deploy.run_doctor", return_value=0) as run_doctor,
             ):
                 rc = run_deploy(args)

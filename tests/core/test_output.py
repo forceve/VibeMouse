@@ -129,6 +129,7 @@ class TextOutputRoutingTests(unittest.TestCase):
     def _bind_keyboard(subject: TextOutput, keyboard: _FakeKeyboardController) -> None:
         setattr(subject, "_kb", keyboard)
         setattr(subject, "_ctrl_key", "CTRL")
+        setattr(subject, "_cmd_key", "CTRL")
         setattr(subject, "_shift_key", "SHIFT")
         setattr(subject, "_insert_key", "INSERT")
         setattr(subject, "_enter_key", "ENTER")

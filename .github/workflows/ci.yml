@@ -5,8 +5,15 @@ on:
   pull_request:
 
 jobs:
+  # ── Python tests (Linux / Windows / macOS) ──────────────────────────────
   test:
-    runs-on: ubuntu-latest
+    name: pytest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -34,3 +41,27 @@ jobs:
 
       - name: Run tests
         run: pytest
+
+  # ── Panel build (Linux / Windows / macOS) ───────────────────────────────
+  panel-build:
+    name: dotnet panel (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Run panel tests
+        run: dotnet test panel/VibeMouse.Panel.Tests/VibeMouse.Panel.Tests.csproj -c Release
+
+      - name: Build panel
+        run: dotnet build panel/VibeMouse.Panel/VibeMouse.Panel.csproj -c Release --no-restore

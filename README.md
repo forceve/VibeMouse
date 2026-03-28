@@ -24,39 +24,59 @@ Core goals are low friction, stable daily use, and graceful fallback when any su
 
 The runtime is event-driven and split by responsibility:
 
-1. `vibemouse/main.py`
-   - CLI entry (`run` / `doctor`)
-2. `vibemouse/app.py`
+1. `vibemouse/cli/main.py`
+   - CLI entry (`run`, `agent run`, `listener run`, `doctor`, `deploy`)
+2. `vibemouse/core/app.py`
    - Orchestrates button events, recording state, transcription workers, and final output routing
-3. `vibemouse/mouse_listener.py`
-   - Captures side buttons and gestures (`evdev` first, fallback path available)
-4. `vibemouse/audio.py`
+3. `vibemouse/listener/mouse_listener.py`
+   - Captures side buttons and gestures (`evdev` on Linux, `pynput` on Windows/macOS)
+4. `vibemouse/core/audio.py`
    - Records audio to temp WAV
-5. `vibemouse/transcriber.py`
+5. `vibemouse/core/transcriber.py`
    - SenseVoice backend selection and transcription
-6. `vibemouse/output.py`
+6. `vibemouse/core/output.py`
    - Text typing / clipboard / OpenClaw dispatch, with fallback and reason tracking
-7. `vibemouse/system_integration.py`
-   - Platform adapter boundary (Hyprland now, Windows/macOS extension points prepared)
-8. `vibemouse/doctor.py`
+7. `vibemouse/platform/system_integration.py`
+   - Platform adapters: `HyprlandSystemIntegration`, `WindowsSystemIntegration`, `MacOSSystemIntegration`
+8. `vibemouse/ops/doctor.py`
    - Built-in diagnostics for env, OpenClaw, input permissions, and known conflicts
+9. `vibemouse/ipc/`
+   - IPC server/client for child-process listener mode (`vibemouse agent run --listener=child`)
+10. `vibemouse/bindings/`
+    - Action binding definitions and resolver
 
-## Quick Start (Linux)
+## Quick Start
 
-### Ubuntu / Debian packages
+### Windows
 
-```bash
-sudo apt update
-sudo apt install -y python3-gi gir1.2-atspi-2.0 portaudio19-dev libsndfile1
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -U pip
+python -m pip install -e .
 ```
 
-### Arch packages
-
-```bash
-sudo pacman -Syu --needed python python-pip python-gobject portaudio libsndfile
+Run diagnostics first:
+```powershell
+vibemouse doctor
 ```
 
-### Install
+Start:
+```powershell
+vibemouse
+```
+
+Set up auto-start on login:
+```powershell
+vibemouse deploy
+```
+
+Windows deploy writes:
+- `%APPDATA%\VibeMouse\deploy.env`
+- `%APPDATA%\VibeMouse\vibemouse-launch.ps1`
+- `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\vibemouse.vbs`
+
+### macOS
 
 ```bash
 python3 -m venv .venv
@@ -65,11 +85,44 @@ pip install -U pip
 pip install -e .
 ```
 
-### Run
+Grant Accessibility permission when prompted (required for text input focus detection and shortcut sending).
+
+Run diagnostics:
+```bash
+vibemouse doctor
+```
+
+Start:
+```bash
+vibemouse
+```
+
+Set up LaunchAgent:
+```bash
+vibemouse deploy
+```
+
+### Linux (Ubuntu / Debian)
+
+Install system packages:
+```bash
+sudo apt update
+sudo apt install -y python3-gi gir1.2-atspi-2.0 portaudio19-dev libsndfile1
+```
+
+### Linux (Arch)
 
 ```bash
-export VIBEMOUSE_BACKEND=funasr_onnx
-export VIBEMOUSE_DEVICE=cpu
+sudo pacman -Syu --needed python python-pip python-gobject portaudio libsndfile
+```
+
+### Linux install and run
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e .
 vibemouse
 ```
 
@@ -78,7 +131,7 @@ Default install is ONNX-first for smaller deployment footprint.
 - Optional PyTorch backend (GPU/advanced fallback): `pip install -e ".[pt]"`
 - Optional Intel NPU dependencies: `pip install -e ".[npu]"`
 
-### One-command auto deploy (recommended)
+### One-command auto deploy for Linux (recommended)
 
 ```bash
 bash scripts/auto-deploy.sh --preset stable
@@ -95,13 +148,8 @@ Available presets:
 Examples:
 
 ```bash
-# High reliability profile
 bash scripts/auto-deploy.sh --preset stable
-
-# Keep resources low
 bash scripts/auto-deploy.sh --preset low-resource
-
-# Custom OpenClaw target assistant
 bash scripts/auto-deploy.sh --preset stable --openclaw-agent ops
 ```
 
@@ -151,17 +199,28 @@ Apply safe auto-fixes first, then re-check:
 vibemouse doctor --fix
 ```
 
-Current checks include:
+Checks by platform:
+
+**All platforms:**
 - Config load validity
 - OpenClaw command resolution + agent existence
 - Microphone input availability
-- Linux input device permissions / side-button capability
+
+**Linux:**
+- Input device permissions / side-button capability
 - Hyprland rear-button Return bind conflicts
 - `systemctl --user` service activity
 
-Current auto-fixes (`--fix`) include:
-- Auto-disable conflicting Hyprland side-button Return binds
-- Attempt to restart inactive `vibemouse.service`
+**Windows:**
+- pynput input hook availability
+- Startup entry presence
+- Background process status
+
+**macOS:**
+- pynput input hook availability
+- Accessibility permissions
+- LaunchAgent presence
+- Background process status
 
 Exit code is non-zero when any `FAIL` check exists.
 
@@ -179,10 +238,10 @@ Useful flags:
 - `--openclaw-agent main`
 - `--openclaw-retries 2`
 - `--log-file ~/.local/state/vibemouse/service.log`
-- `--skip-systemctl`
+- `--skip-systemctl` (Linux)
 - `--dry-run`
 
-Persistent debug logs (recommended):
+Persistent debug logs (Linux, recommended):
 
 ```bash
 tail -f ~/.local/state/vibemouse/service.log
@@ -202,7 +261,7 @@ tail -f ~/.local/state/vibemouse/service.log
 | `VIBEMOUSE_PREWARM_DELAY_S` | `0.0` | Delay ASR prewarm after startup to improve initial responsiveness |
 | `VIBEMOUSE_STATUS_FILE` | `$XDG_RUNTIME_DIR/vibemouse-status.json` | Runtime status for bars/widgets |
 
-Full configuration source of truth: `vibemouse/config.py`.
+Full configuration source of truth: `vibemouse/config/schema.py`.
 
 ## Troubleshooting Shortlist
 
@@ -237,7 +296,7 @@ Fast verification order (recommended):
 
 If (1)-(3) pass but buttons still do nothing, debug listener code-path first.
 
-### Rear button still sends Enter while recording
+### Rear button still sends Enter while recording (Linux/Hyprland)
 
 Check Hyprland-level hard bind conflict in
 `~/.config/hypr/UserConfigs/UserKeybinds.conf` and remove lines like:
@@ -267,16 +326,18 @@ sudo usermod -aG input $USER
 # relogin required
 ```
 
-## For AI Assistants and Platform Adapters
+### macOS: shortcut sending or focus detection not working
 
-Use this guide when adapting to Windows/macOS or custom environments:
+Open **System Preferences → Privacy & Security → Accessibility** and ensure the terminal (or VibeMouse process) is allowed.
+
+## For AI Assistants and Platform Adapters
 
 - [`docs/AI_ASSISTANT_DEPLOYMENT.md`](./docs/AI_ASSISTANT_DEPLOYMENT.md)
 - [`docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md`](./docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md)
 - [`docs/AI_DEBUG_RUNBOOK.md`](./docs/AI_DEBUG_RUNBOOK.md)
 
-It contains architecture contracts, dependency download links, adaptation workflow,
-and a prompt template for autonomous platform adaptation.
+Contains architecture contracts, dependency download links, adaptation workflow,
+and a prompt template for autonomous deployment.
 
 ## License
 

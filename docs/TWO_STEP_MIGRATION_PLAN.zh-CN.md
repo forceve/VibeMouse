@@ -624,13 +624,112 @@ import 包名仍然必须保持 `vibemouse`。
 - panel 按平台产出资产
 - changelog 仍然按产品版本统一
 
+#### E. Panel 获得 Agent 生命周期管理能力
+
+Panel 在 Step 2 中扩展为能从零状态唤起 agent，不再要求用户手动执行 CLI 命令。
+
+**Panel 需要承担的新职责：**
+
+- 检测 agent 是否在运行（轮询 `status.json` + IPC 探活）
+- 如果 agent 离线，主界面顶部显示警告条和"启动 Agent"按钮
+- 以 detach 模式启动 agent：panel 关闭后 agent 继续运行
+- 通过 IPC 发送 `shutdown` 命令停止 agent
+- 停止后可选自动重新启动（重启按钮）
+
+**venv 路径解析规则（优先级从高到低）：**
+
+1. `config.json` 中 `agent.venv_path`（首次引导时写入）
+2. `VIBEMOUSE_VENV` 环境变量
+3. monorepo 根目录下的 `.venv/`（相对 `agent/` 的 `../.venv`）
+
+**边界约束：**
+
+- panel 只负责进程的生命周期（start / stop / restart），不介入 agent 内部状态
+- 启动命令固定为 `vibemouse agent run`，不绕过正式 CLI 入口
+- agent 以独立进程运行，不作为 panel 的子进程（panel 关闭不影响 agent）
+
+#### F. 首次运行引导（零命令行体验）
+
+Panel 在首次启动时检测运行环境，弹出安装向导，完整替代手动 CLI 安装流程。用户从 clone 仓库到开始使用，全程只需操作 panel。
+
+**触发条件（满足任意一条即进入向导）：**
+
+- `config.json` 不存在
+- venv 不存在或 `vibemouse` 命令不可用
+- `vibemouse doctor` 检测出阻断性缺失
+
+**向导流程：**
+
+```
+步骤 1  欢迎页
+        检测并展示当前平台（Windows / macOS / Linux）
+        说明接下来会做什么
+
+步骤 2  Python 检测
+        搜索 PATH 及常见安装路径，校验版本 ≥ 3.10
+        失败时给出平台对应的下载链接
+
+步骤 3  虚拟环境创建
+        执行 python3 -m venv .venv（如 venv 已存在则跳过）
+
+步骤 4  依赖安装
+        执行 pip install -e .
+        stdout/stderr 流式输出到滚动文本框
+        首次安装含 PyTorch + SenseVoice，进度条 + 预估提示
+
+步骤 5  环境诊断
+        执行 vibemouse doctor
+        逐项解析输出，Pass / Fail 状态图标
+        平台权限缺失（macOS 辅助功能、Linux input 组）给出跳转引导
+
+步骤 6  基础配置
+        必填：OpenClaw 地址、API key
+        可选：录音设备、快捷键覆盖
+        写入 config.json（包含 agent.venv_path）
+
+步骤 7  首次启动 Agent
+        detach 模式启动，等待 IPC 探活成功（最多 15 秒）
+        失败时显示 agent 日志尾部，提供重试
+
+步骤 8  完成
+        进入主界面
+```
+
+**实现要点：**
+
+- 每个步骤都有 Pass / Fail / Skipped 三态标记
+- 失败步骤有独立"重试"按钮，不需要重跑整个向导
+- 耗时步骤（pip install、doctor）在独立 `Task` 中执行，不阻塞 UI 线程
+- 向导状态持久化到临时文件，允许关闭后续跑（断点续装）
+
+#### G. 系统托盘（可选，Step 2 扩展）
+
+系统托盘让 panel 能以极低资源占用保持后台存在，适合需要频繁查看状态的用户。
+
+**能力：**
+
+- 托盘图标反映 agent 状态（运行中 / 离线 / 录音中）
+- 右键菜单：启动 / 停止 / 重启 Agent、打开主界面、退出
+- 关闭主窗口时可选最小化到托盘，而不是退出
+
+**与"关闭后无额外占用"的关系：**
+
+- 默认行为：关闭主窗口 = 完全退出 panel（agent 仍然运行，托盘不驻留）
+- 可选行为：关闭主窗口 = 最小化到托盘（在 `config.json` 中通过 `panel.minimize_to_tray: true` 控制）
+- 两种行为下，agent 都独立运行，不受 panel 窗口状态影响
+
+系统托盘属于 Step 1 明确留到 Step 2 的平台特有能力，应在 panel 成为独立子项目（B）之后实现。
+
 ### 第 2 步执行顺序
 
 1. 把 Python 包和测试挪进 `agent/`
 2. 把 Python 打包元数据挪进 `agent/`
 3. 更新 CI 和 release 脚本路径
 4. `panel/` 和 `shared/` 保持原地不动
-5. 从 monorepo 根目录验证构建和发布
+5. 为 panel 添加 agent 生命周期管理（E）
+6. 实现首次运行向导（F）
+7. 实现系统托盘（G，可选）
+8. 从 monorepo 根目录验证构建和发布
 
 ### 第 2 步交付物
 
@@ -638,6 +737,9 @@ import 包名仍然必须保持 `vibemouse`。
 - panel 成为并列子项目
 - shared 中的 schema 和协议稳定
 - CI / 发布可以从 monorepo 根目录驱动
+- panel 能从零状态启动/停止 agent，无需 CLI
+- 首次运行向导引导用户完成完整安装，无需手动执行任何命令
+- （可选）系统托盘：关闭主窗口后 panel 以极低开销保持后台
 
 ### 第 2 步迁移成本
 
@@ -762,7 +864,12 @@ Windows 和 macOS 应该建立在 `listener / bindings / ipc / core` 这些清�
 
 - 配置 / 状态 / 日志路径
 - 打开目录和日志
-- 启动 / 停止 / 重载 agent
+- 启动 / 停止 / 重载 agent（Step 2 E）
+- 首次运行向导中的平台差异处理（Step 2 F）：
+  - Python 可执行文件查找路径
+  - 平台权限引导（macOS 辅助功能、Linux input 组）
+  - venv 激活脚本路径（`.venv/Scripts/python.exe` vs `.venv/bin/python`）
+- 系统托盘（Step 2 G，可选）
 - 自启动 UI 入口
 - 打包和签名
 
@@ -830,6 +937,8 @@ Windows 和 macOS 应该建立在 `listener / bindings / ipc / core` 这些清�
 - doctor / deploy 已按平台分发
 - CI 在三平台运行
 - 单一版本能产出多平台 agent / panel 资产
+- 用户从 clone 仓库到首次使用，全程不需要打开终端
+- panel 能独立启动和停止 agent，agent 关闭 panel 后继续运行
 
 ## 需要避免的反模式
 

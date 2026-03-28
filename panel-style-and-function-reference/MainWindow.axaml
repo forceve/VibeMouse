@@ -1,0 +1,222 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Vibemouse.MainWindow"
+        Title="Vibemouse Config"
+        Width="460" Height="450"
+        SystemDecorations="None"
+        WindowStartupLocation="CenterScreen"
+        Background="Transparent"
+        TransparencyLevelHint="Mica, AcrylicBlur"
+        RequestedThemeVariant="Dark">
+
+    <!--
+        Root is a Grid (single cell) — all three children stack on top of each other.
+        Overlays are IsVisible="False" until capture is triggered.
+    -->
+    <Grid>
+
+        <!-- ══════════════════════════════════════════════════════
+             MAIN CONTENT
+        ══════════════════════════════════════════════════════ -->
+        <Border CornerRadius="16"
+                Background="#CC18181A"
+                BorderBrush="#30FFFFFF"
+                BorderThickness="1"
+                Padding="24">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+
+                <!-- Title bar (draggable) -->
+                <Grid Grid.Row="0"
+                      ColumnDefinitions="*,Auto"
+                      PointerPressed="TopBar_PointerPressed"
+                      Background="Transparent">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <TextBlock Text="🖱️" FontSize="16" VerticalAlignment="Center"/>
+                        <TextBlock Text="Vibemouse Configuration"
+                                   FontSize="17" FontWeight="Medium"
+                                   Foreground="#FFFFFFFF" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            Content="✕" Width="30" Height="30"
+                            CornerRadius="15"
+                            Background="Transparent"
+                            Foreground="#88888888"
+                            Click="CloseButton_Click"/>
+                </Grid>
+
+                <!-- Separator -->
+                <Rectangle Grid.Row="1" Height="1" Fill="#1AFFFFFF" Margin="0,16,0,20"/>
+
+                <!-- Listener toggle -->
+                <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,0,0,20">
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="3">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="🎙️" FontSize="15" VerticalAlignment="Center"/>
+                            <TextBlock Text="Listener"
+                                       FontSize="15" FontWeight="Medium"
+                                       Foreground="#FFFFFFFF"/>
+                        </StackPanel>
+                        <TextBlock x:Name="ListenerStatusText"
+                                   Text="IPC commands only"
+                                   FontSize="12"
+                                   Foreground="#88888888"
+                                   Margin="23,0,0,0"/>
+                    </StackPanel>
+                    <ToggleSwitch Grid.Column="1"
+                                  x:Name="ListenerSwitch"
+                                  OffContent="" OnContent=""
+                                  VerticalAlignment="Center"
+                                  IsCheckedChanged="ListenerSwitch_IsCheckedChanged"/>
+                </Grid>
+
+                <!-- Thin divider -->
+                <Rectangle Grid.Row="3" Height="1" Fill="#12FFFFFF" Margin="0,0,0,16"/>
+
+                <!-- Keybindings section -->
+                <StackPanel Grid.Row="4" Spacing="0">
+                    <StackPanel Orientation="Horizontal" Spacing="7" Margin="0,0,0,14">
+                        <TextBlock Text="⌨️" FontSize="14" VerticalAlignment="Center"/>
+                        <TextBlock Text="Keybindings"
+                                   FontSize="14" FontWeight="Medium"
+                                   Foreground="#FFFFFFFF"/>
+                    </StackPanel>
+                    <!-- Populated in code-behind via BuildCommandList() -->
+                    <StackPanel x:Name="CommandList" Spacing="2"/>
+                </StackPanel>
+
+            </Grid>
+        </Border>
+
+        <!-- ══════════════════════════════════════════════════════
+             KEYBOARD CAPTURE OVERLAY
+        ══════════════════════════════════════════════════════ -->
+        <Border x:Name="KbCaptureOverlay"
+                IsVisible="False"
+                CornerRadius="16"
+                Background="#F218181A">
+            <StackPanel VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Spacing="10">
+                <TextBlock Text="⌨️" FontSize="22" HorizontalAlignment="Center"/>
+                <TextBlock Text="Press any key combination"
+                           FontSize="14" FontWeight="Medium"
+                           Foreground="#E0E0E0" HorizontalAlignment="Center"/>
+                <TextBlock Text="Modifier-only keys are ignored"
+                           FontSize="12" Foreground="#44888888"
+                           HorizontalAlignment="Center"/>
+                <Button Content="Cancel"
+                        Click="KbCapture_Cancel"
+                        Margin="0,8,0,0"
+                        HorizontalAlignment="Center"
+                        Background="Transparent"
+                        Foreground="#88888888"
+                        BorderBrush="#22FFFFFF"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="12,5"/>
+            </StackPanel>
+        </Border>
+
+        <!-- ══════════════════════════════════════════════════════
+             MOUSE CAPTURE OVERLAY
+        ══════════════════════════════════════════════════════ -->
+        <Border x:Name="MsCaptureOverlay"
+                IsVisible="False"
+                CornerRadius="16"
+                Background="#F218181A">
+            <StackPanel VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Spacing="14">
+
+                <TextBlock Text="🖱️" FontSize="22" HorizontalAlignment="Center"/>
+
+                <StackPanel HorizontalAlignment="Center" Spacing="4">
+                    <TextBlock x:Name="MsHintText"
+                               Text="Click, combine, or drag below"
+                               FontSize="14" FontWeight="Medium"
+                               Foreground="#E0E0E0"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="MMB · X1 · X2 · LMB+RMB · modifier+any · drag"
+                               FontSize="12" Foreground="#44888888"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Live held-key pills (populated in code-behind) -->
+                <WrapPanel x:Name="HeldPillsPanel"
+                           HorizontalAlignment="Center"
+                           Orientation="Horizontal"
+                           MinHeight="26"/>
+
+                <!-- Gesture visual area -->
+                <Border x:Name="GestureAreaBorder"
+                        Width="180" Height="180"
+                        CornerRadius="16"
+                        Background="#0AFFFFFF"
+                        BorderBrush="#1AFFFFFF"
+                        BorderThickness="1"
+                        ClipToBounds="True"
+                        Cursor="Crosshair"
+                        PointerPressed="GestureArea_PointerPressed"
+                        PointerMoved="GestureArea_PointerMoved"
+                        PointerReleased="GestureArea_PointerReleased">
+                    <Panel>
+                        <!-- Crosshair guides -->
+                        <Rectangle Width="1" HorizontalAlignment="Center"
+                                   Fill="#0DFFFFFF" IsHitTestVisible="False"/>
+                        <Rectangle Height="1" VerticalAlignment="Center"
+                                   Fill="#0DFFFFFF" IsHitTestVisible="False"/>
+                        <!-- Drag trail (Points assigned in code-behind) -->
+                        <Canvas Width="180" Height="180" IsHitTestVisible="False">
+                            <Polyline x:Name="GestureTrail"
+                                      Stroke="#604ade80"
+                                      StrokeThickness="2"
+                                      StrokeLineCap="Round"
+                                      StrokeLineJoin="Round"/>
+                        </Canvas>
+                        <!-- Direction arrow -->
+                        <TextBlock x:Name="GestureArrow"
+                                   Text="·"
+                                   FontSize="40"
+                                   Foreground="#2a2a2e"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   IsHitTestVisible="False"/>
+                    </Panel>
+                </Border>
+
+                <!-- Committed result (shown briefly before overlay closes) -->
+                <TextBlock x:Name="GestureResultText"
+                           FontSize="13" FontWeight="Medium"
+                           Foreground="#4ade80"
+                           HorizontalAlignment="Center"
+                           MinHeight="20"
+                           IsVisible="False"/>
+
+                <!-- Rejection error (bare LMB / bare RMB) -->
+                <Border x:Name="MsErrorBorder"
+                        IsVisible="False"
+                        Background="#14E0A040"
+                        BorderBrush="#33E0A040"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="10,4">
+                    <TextBlock x:Name="MsErrorText"
+                               FontSize="12"
+                               Foreground="#E0A040"
+                               HorizontalAlignment="Center"/>
+                </Border>
+
+                <Button Content="Cancel"
+                        Click="MsCapture_Cancel"
+                        HorizontalAlignment="Center"
+                        Background="Transparent"
+                        Foreground="#88888888"
+                        BorderBrush="#22FFFFFF"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="12,5"/>
+            </StackPanel>
+        </Border>
+
+    </Grid>
+</Window>

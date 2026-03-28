@@ -12,6 +12,7 @@ from typing import cast
 from unittest.mock import patch
 
 from vibemouse.core.commands import (
+    COMMAND_DOCTOR,
     COMMAND_RELOAD_CONFIG,
     COMMAND_SEND_ENTER,
     COMMAND_SHUTDOWN,
@@ -355,6 +356,20 @@ class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
         execute_command(COMMAND_RELOAD_CONFIG)
 
         self.assertEqual(reload_calls, [True])
+
+    def test_execute_command_doctor_dispatches_to_doctor_runner(self) -> None:
+        subject = self._make_subject()
+        setattr(subject, "_command_lock", threading.RLock())
+
+        execute_command = cast(
+            Callable[[str], None],
+            getattr(subject, "_execute_command"),
+        )
+
+        with patch("vibemouse.app.run_doctor") as run_doctor_mock:
+            execute_command(COMMAND_DOCTOR)
+
+        self.assertEqual(run_doctor_mock.call_count, 1)
 
     def test_execute_command_shutdown_sets_stop_event(self) -> None:
         subject = self._make_subject()

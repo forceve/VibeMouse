@@ -65,6 +65,7 @@ Two message shapes are supported:
 | `workspace_left` | Switch workspace left |
 | `workspace_right` | Switch workspace right |
 | `reload_config` | Reload `config.json` |
+| `doctor` | Run environment diagnostics |
 | `shutdown` | Gracefully shut down the agent |
 
 Canonical source: [`shared/protocol/COMMANDS.md`](../shared/protocol/COMMANDS.md)

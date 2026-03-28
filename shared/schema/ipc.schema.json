@@ -30,6 +30,7 @@
         "command": {
           "type": "string",
           "enum": [
+            "doctor",
             "noop",
             "reload_config",
             "send_enter",
