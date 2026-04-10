@@ -104,6 +104,8 @@ public partial class MainWindow : Window
             ListenerStateText.Foreground = _vm.ListenerState switch
             {
                 "running" => SolidColorBrush.Parse("#4ade80"),
+                "starting" => SolidColorBrush.Parse("#f59e0b"),
+                "crashed" => SolidColorBrush.Parse("#ef4444"),
                 "disabled" => SolidColorBrush.Parse("#f59e0b"),
                 _ => SolidColorBrush.Parse("#888888"),
             };
@@ -123,7 +125,7 @@ public partial class MainWindow : Window
         if (propertyName is null or nameof(MainViewModel.IpcAvailable))
         {
             ReloadButton.IsEnabled = _vm.IpcAvailable;
-            DoctorButton.IsEnabled = true;
+            DoctorButton.IsEnabled = _vm.IpcAvailable;
             IpcHintText.IsVisible = !_vm.IpcAvailable;
         }
     }

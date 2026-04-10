@@ -57,28 +57,7 @@ public class AgentControlService
     }
 
     public virtual async Task RunDoctorAsync()
-    {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "vibemouse",
-            UseShellExecute = false,
-        };
-        startInfo.ArgumentList.Add("doctor");
-
-        using var process = Process.Start(startInfo);
-        if (process is null)
-        {
-            throw new InvalidOperationException("Failed to start 'vibemouse doctor'.");
-        }
-
-        await process.WaitForExitAsync();
-        if (process.ExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                $"'vibemouse doctor' failed with exit code {process.ExitCode}."
-            );
-        }
-    }
+        => await SendCommandAsync("doctor");
 
     internal static byte[] CreateCommandFrame(string command)
     {
@@ -134,12 +113,30 @@ public class AgentControlService
             Directory.CreateDirectory(logDir);
         }
 
-        var psi = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "explorer.exe",
-            Arguments = $"\"{logDir}\"",
-            UseShellExecute = true,
-        };
-        System.Diagnostics.Process.Start(psi);
+        Process.Start(CreateOpenDirectoryStartInfo(logDir));
+    }
+
+    internal static ProcessStartInfo CreateOpenDirectoryStartInfo(string directoryPath)
+    {
+        var psi = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                UseShellExecute = false,
+            }
+            : OperatingSystem.IsMacOS()
+                ? new ProcessStartInfo
+                {
+                    FileName = "open",
+                    UseShellExecute = false,
+                }
+                : new ProcessStartInfo
+                {
+                    FileName = "xdg-open",
+                    UseShellExecute = false,
+                };
+
+        psi.ArgumentList.Add(directoryPath);
+        return psi;
     }
 }

@@ -176,6 +176,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public async System.Threading.Tasks.Task RunDoctorAsync()
     {
+        if (!IpcAvailable) return;
         await _agentControl.RunDoctorAsync();
     }
 
