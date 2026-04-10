@@ -139,6 +139,27 @@ Default install is ONNX-first for smaller deployment footprint.
 - Optional PyTorch backend (GPU/advanced fallback): `pip install -e ".[pt]"`
 - Optional Intel NPU dependencies: `pip install -e ".[npu]"`
 
+### Panel (Step 1)
+
+The Avalonia panel is a narrow control surface: it edits `config.json`, polls
+`status.json`, and, when agent IPC is online, can send safe runtime commands
+such as `reload_config` and `doctor`.
+
+Run it from the repository root:
+
+```bash
+dotnet run --project panel/VibeMouse.Panel
+```
+
+Build and publish:
+
+```bash
+dotnet test panel/VibeMouse.Panel.Tests/VibeMouse.Panel.Tests.csproj -c Release
+dotnet publish panel/VibeMouse.Panel -c Release -r win-x64 --self-contained -o dist/panel-windows
+dotnet publish panel/VibeMouse.Panel -c Release -r osx-arm64 --self-contained -o dist/panel-macos
+dotnet publish panel/VibeMouse.Panel -c Release -r linux-x64 --self-contained -o dist/panel-linux
+```
+
 ### One-command auto deploy for Linux (recommended)
 
 ```bash

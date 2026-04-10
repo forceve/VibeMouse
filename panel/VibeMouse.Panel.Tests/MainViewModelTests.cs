@@ -57,6 +57,17 @@ public sealed class MainViewModelTests : IDisposable
         viewModel.Dispose();
     }
 
+    [Fact]
+    public async Task RunDoctorAsync_DoesNothingWhenIpcIsUnavailable()
+    {
+        var (viewModel, control) = CreateSubject();
+
+        await viewModel.RunDoctorAsync();
+
+        Assert.False(control.DoctorRan);
+        viewModel.Dispose();
+    }
+
     private (MainViewModel ViewModel, RecordingAgentControlService Control) CreateSubject()
     {
         var configService = new ConfigService(_configPath);

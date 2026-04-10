@@ -139,6 +139,25 @@ vibemouse
 - 可选 PyTorch 后端（GPU/高级兜底）：`pip install -e ".[pt]"`
 - 可选 Intel NPU 依赖：`pip install -e ".[npu]"`
 
+### Panel（Step 1）
+
+Avalonia Panel 是 Step 1 的窄边界控制面板：编辑 `config.json`、轮询 `status.json`，并在 agent IPC 在线时发送 `reload_config`、`doctor` 等安全运行时命令。
+
+在仓库根目录运行：
+
+```bash
+dotnet run --project panel/VibeMouse.Panel
+```
+
+构建和发布：
+
+```bash
+dotnet test panel/VibeMouse.Panel.Tests/VibeMouse.Panel.Tests.csproj -c Release
+dotnet publish panel/VibeMouse.Panel -c Release -r win-x64 --self-contained -o dist/panel-windows
+dotnet publish panel/VibeMouse.Panel -c Release -r osx-arm64 --self-contained -o dist/panel-macos
+dotnet publish panel/VibeMouse.Panel -c Release -r linux-x64 --self-contained -o dist/panel-linux
+```
+
 ### 一键自动部署（Linux，推荐）
 
 ```bash
