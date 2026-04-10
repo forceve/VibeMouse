@@ -186,7 +186,9 @@ class StatusStoreTests(unittest.TestCase):
                 {
                     "recording": True,
                     "state": "recording",
-                    "listener_mode": "inline",
+                    "listener_mode": "child",
+                    "listener_state": "running",
+                    "listener_pid": 1234,
                 }
             )
 
@@ -195,7 +197,9 @@ class StatusStoreTests(unittest.TestCase):
         self.assertEqual(
             payload,
             {
-                "listener_mode": "inline",
+                "listener_mode": "child",
+                "listener_pid": 1234,
+                "listener_state": "running",
                 "recording": True,
                 "state": "recording",
             },
