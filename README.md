@@ -25,7 +25,7 @@ Core goals are low friction, stable daily use, and graceful fallback when any su
 The runtime is event-driven and split by responsibility:
 
 1. `vibemouse/cli/main.py`
-   - CLI entry (`run`, `agent run`, `listener run`, `doctor`, `deploy`)
+   - CLI entry (`run`, `agent run`, `listener run`, `doctor`, `deploy`); default agent mode is child-listener supervision
 2. `vibemouse/core/app.py`
    - Orchestrates button events, recording state, transcription workers, and final output routing
 3. `vibemouse/listener/mouse_listener.py`
@@ -66,6 +66,9 @@ Start:
 vibemouse
 ```
 
+Default runtime mode is `listener=child`. Use `vibemouse agent run --listener=inline`
+only as a compatibility fallback while debugging listener-process issues.
+
 Set up auto-start on login:
 ```powershell
 vibemouse deploy
@@ -97,6 +100,9 @@ Start:
 vibemouse
 ```
 
+Default runtime mode is `listener=child`. Use `vibemouse agent run --listener=inline`
+only as a compatibility fallback while debugging listener-process issues.
+
 Set up LaunchAgent:
 ```bash
 vibemouse deploy
@@ -125,6 +131,8 @@ pip install -U pip
 pip install -e .
 vibemouse
 ```
+
+This starts the agent in the default `listener=child` mode.
 
 Default install is ONNX-first for smaller deployment footprint.
 

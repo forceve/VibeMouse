@@ -25,7 +25,7 @@ VibeMouse 把高频语音工作流绑定到鼠标侧键：
 整体是事件驱动，按职责拆分：
 
 1. `vibemouse/cli/main.py`
-   - CLI 入口（`run`、`agent run`、`listener run`、`doctor`、`deploy`）
+   - CLI 入口（`run`、`agent run`、`listener run`、`doctor`、`deploy`）；默认 agent 模式为 `listener=child`
 2. `vibemouse/core/app.py`
    - 编排按钮事件、录音状态、转写线程和输出路由
 3. `vibemouse/listener/mouse_listener.py`
@@ -66,6 +66,9 @@ vibemouse doctor
 vibemouse
 ```
 
+默认运行模式是 `listener=child`。只有在排查 listener 子进程问题时，才建议显式使用
+`vibemouse agent run --listener=inline` 作为兼容回退。
+
 设置开机自启：
 ```powershell
 vibemouse deploy
@@ -97,6 +100,9 @@ vibemouse doctor
 vibemouse
 ```
 
+默认运行模式是 `listener=child`。只有在排查 listener 子进程问题时，才建议显式使用
+`vibemouse agent run --listener=inline` 作为兼容回退。
+
 设置 LaunchAgent：
 ```bash
 vibemouse deploy
@@ -125,6 +131,8 @@ pip install -U pip
 pip install -e .
 vibemouse
 ```
+
+这会以默认的 `listener=child` 模式启动 agent。
 
 默认安装走 ONNX 优先，部署体积更小。
 
