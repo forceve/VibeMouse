@@ -20,6 +20,17 @@
       "type": "string",
       "enum": ["inline", "child", "off"]
     },
+    "listener_state": {
+      "type": "string",
+      "enum": ["starting", "running", "crashed", "disabled"]
+    },
+    "listener_pid": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "listener_last_error": {
+      "type": "string"
+    },
     "last_transcript": {
       "type": "string"
     },

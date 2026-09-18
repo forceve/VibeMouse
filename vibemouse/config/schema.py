@@ -26,6 +26,7 @@ _ENTER_MODE_CHOICES = {"enter", "ctrl_enter", "shift_enter", "none"}
 _LOG_LEVEL_CHOICES = {"debug", "info", "warning", "error", "critical"}
 _STATUS_STATE_CHOICES = {"idle", "recording", "processing"}
 _LISTENER_MODE_CHOICES = {"inline", "child", "off"}
+_LISTENER_STATE_CHOICES = {"starting", "running", "crashed", "disabled"}
 
 
 @dataclass(frozen=True)
@@ -280,6 +281,9 @@ def normalize_status_document(payload: Mapping[str, object]) -> dict[str, object
         "recording",
         "state",
         "listener_mode",
+        "listener_state",
+        "listener_pid",
+        "listener_last_error",
         "last_transcript",
         "ipc_socket",
         "ipc_port",
@@ -306,6 +310,28 @@ def normalize_status_document(payload: Mapping[str, object]) -> dict[str, object
             listener_mode,
             "status.listener_mode",
             _LISTENER_MODE_CHOICES,
+        )
+
+    listener_state = payload.get("listener_state")
+    if listener_state is not None:
+        normalized["listener_state"] = _coerce_choice(
+            listener_state,
+            "status.listener_state",
+            _LISTENER_STATE_CHOICES,
+        )
+
+    listener_pid = payload.get("listener_pid")
+    if listener_pid is not None:
+        normalized["listener_pid"] = _coerce_positive_int(
+            listener_pid,
+            "status.listener_pid",
+        )
+
+    listener_last_error = payload.get("listener_last_error")
+    if listener_last_error is not None:
+        normalized["listener_last_error"] = _coerce_string(
+            listener_last_error,
+            "status.listener_last_error",
         )
 
     last_transcript = payload.get("last_transcript")

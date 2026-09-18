@@ -25,7 +25,7 @@ Core goals are low friction, stable daily use, and graceful fallback when any su
 The runtime is event-driven and split by responsibility:
 
 1. `vibemouse/cli/main.py`
-   - CLI entry (`run`, `agent run`, `listener run`, `doctor`, `deploy`)
+   - CLI entry (`run`, `agent run`, `listener run`, `doctor`, `deploy`); default agent mode is child-listener supervision
 2. `vibemouse/core/app.py`
    - Orchestrates button events, recording state, transcription workers, and final output routing
 3. `vibemouse/listener/mouse_listener.py`
@@ -66,6 +66,9 @@ Start:
 vibemouse
 ```
 
+Default runtime mode is `listener=child`. Use `vibemouse agent run --listener=inline`
+only as a compatibility fallback while debugging listener-process issues.
+
 Set up auto-start on login:
 ```powershell
 vibemouse deploy
@@ -97,6 +100,9 @@ Start:
 vibemouse
 ```
 
+Default runtime mode is `listener=child`. Use `vibemouse agent run --listener=inline`
+only as a compatibility fallback while debugging listener-process issues.
+
 Set up LaunchAgent:
 ```bash
 vibemouse deploy
@@ -126,10 +132,33 @@ pip install -e .
 vibemouse
 ```
 
+This starts the agent in the default `listener=child` mode.
+
 Default install is ONNX-first for smaller deployment footprint.
 
 - Optional PyTorch backend (GPU/advanced fallback): `pip install -e ".[pt]"`
 - Optional Intel NPU dependencies: `pip install -e ".[npu]"`
+
+### Panel (Step 1)
+
+The Avalonia panel is a narrow control surface: it edits `config.json`, polls
+`status.json`, and, when agent IPC is online, can send safe runtime commands
+such as `reload_config` and `doctor`.
+
+Run it from the repository root:
+
+```bash
+dotnet run --project panel/VibeMouse.Panel
+```
+
+Build and publish:
+
+```bash
+dotnet test panel/VibeMouse.Panel.Tests/VibeMouse.Panel.Tests.csproj -c Release
+dotnet publish panel/VibeMouse.Panel -c Release -r win-x64 --self-contained -o dist/panel-windows
+dotnet publish panel/VibeMouse.Panel -c Release -r osx-arm64 --self-contained -o dist/panel-macos
+dotnet publish panel/VibeMouse.Panel -c Release -r linux-x64 --self-contained -o dist/panel-linux
+```
 
 ### One-command auto deploy for Linux (recommended)
 

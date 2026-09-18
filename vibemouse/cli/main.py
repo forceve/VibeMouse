@@ -14,7 +14,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="vibemouse")
     subparsers = parser.add_subparsers(dest="command")
 
-    run_parser = subparsers.add_parser("run", help="run the voice-input daemon (alias for agent run --listener=inline)")
+    run_parser = subparsers.add_parser(
+        "run",
+        help="run the voice-input daemon (alias for agent run --listener=child)",
+    )
     run_parser.add_argument("--config", default=None, help="path to config.json")
 
     agent_parser = subparsers.add_parser("agent", help="agent subcommands")
@@ -23,7 +26,7 @@ def _build_parser() -> argparse.ArgumentParser:
     agent_run.add_argument(
         "--listener",
         choices=["inline", "child", "off"],
-        default="inline",
+        default="child",
         help="listener mode: inline (in-process), child (subprocess via IPC), off (no listener)",
     )
     agent_run.add_argument("--config", default=None, help="path to config.json")
@@ -80,10 +83,10 @@ def main(argv: list[str] | None = None) -> int:
         if agent_cmd != "run":
             parser.parse_args([*((argv or [])[:0]), "agent", "--help"])
             return 1
-        listener_mode = getattr(args, "listener", "inline")
+        listener_mode = getattr(args, "listener", "child")
     else:
-        # "run" - legacy alias for agent run --listener=inline
-        listener_mode = "inline"
+        # "run" - legacy alias for agent run --listener=child
+        listener_mode = "child"
     config_path = getattr(args, "config", None)
 
     config = load_config(config_path)

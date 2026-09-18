@@ -39,7 +39,18 @@ public class ConfigService
     {
         var options = new JsonSerializerOptions { WriteIndented = true };
         var json = document.ToJsonString(options);
-        File.WriteAllText(_configPath, json);
+        var target = Path.GetFullPath(_configPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        var temporary = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(temporary, json);
+            File.Move(temporary, target, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
     }
 
     /// <summary>
@@ -48,10 +59,6 @@ public class ConfigService
     /// </summary>
     public static string DefaultConfigPath()
     {
-        var xdgConfig = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
-        if (!string.IsNullOrEmpty(xdgConfig))
-            return Path.Combine(xdgConfig, "vibemouse", "config.json");
-
         if (OperatingSystem.IsWindows())
         {
             var appData = Environment.GetEnvironmentVariable("APPDATA");
@@ -68,8 +75,12 @@ public class ConfigService
             return Path.Combine(home, "Library", "Application Support", "vibemouse", "config.json");
         }
 
-        var xdgHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return Path.Combine(xdgHome, ".config", "vibemouse", "config.json");
+        var xdgConfig = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+        if (!string.IsNullOrEmpty(xdgConfig))
+            return Path.Combine(xdgConfig, "vibemouse", "config.json");
+
+        var homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return Path.Combine(homeDir, ".config", "vibemouse", "config.json");
     }
 
     /// <summary>
@@ -77,11 +88,5 @@ public class ConfigService
     /// Mirrors the Python agent's runtime status discovery logic.
     /// </summary>
     public static string DefaultStatusPath()
-    {
-        var runtimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
-        if (!string.IsNullOrEmpty(runtimeDir))
-            return Path.Combine(runtimeDir, "vibemouse-status.json");
-
-        return Path.Combine(Path.GetTempPath(), "vibemouse-status.json");
-    }
+        => AppPaths.DefaultStatusFilePath();
 }

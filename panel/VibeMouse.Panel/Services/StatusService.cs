@@ -68,19 +68,16 @@ public record StatusSnapshot(
     string ListenerMode,
     string LastTranscript,
     string? IpcSocket,
-    int? IpcPort)
+    int? IpcPort,
+    int? ListenerPid = null,
+    string? ListenerLastError = null,
+    string? ReportedListenerState = null)
 {
     public bool IpcAvailable => IpcSocket is not null || IpcPort is not null;
 
-    public string ListenerState => State == "offline"
-        ? "offline"
-        : ListenerMode switch
-        {
-            "inline" => "running",
-            "child" => "running",
-            "off" => "disabled",
-            _ => "unknown",
-        };
+    public string ListenerState => !string.IsNullOrWhiteSpace(ReportedListenerState)
+        ? ReportedListenerState
+        : DeriveListenerState(State, ListenerMode);
 
     public static StatusSnapshot Offline { get; } =
         new("offline", "unknown", string.Empty, null, null);
@@ -94,6 +91,19 @@ public record StatusSnapshot(
             ListenerMode:   obj["listener_mode"]?.GetValue<string>() ?? "unknown",
             LastTranscript: obj["last_transcript"]?.GetValue<string>() ?? string.Empty,
             IpcSocket:      obj["ipc_socket"]?.GetValue<string>(),
-            IpcPort:        obj["ipc_port"]?.AsValue().TryGetValue<int>(out var p) == true ? p : null);
+            IpcPort:        obj["ipc_port"]?.AsValue().TryGetValue<int>(out var port) == true ? port : null,
+            ListenerPid:    obj["listener_pid"]?.AsValue().TryGetValue<int>(out var pid) == true ? pid : null,
+            ListenerLastError: obj["listener_last_error"]?.GetValue<string>(),
+            ReportedListenerState: obj["listener_state"]?.GetValue<string>());
     }
+
+    private static string DeriveListenerState(string state, string listenerMode) => state == "offline"
+        ? "offline"
+        : listenerMode switch
+        {
+            "inline" => "running",
+            "child" => "running",
+            "off" => "disabled",
+            _ => "unknown",
+        };
 }

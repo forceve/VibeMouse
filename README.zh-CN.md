@@ -25,7 +25,7 @@ VibeMouse 把高频语音工作流绑定到鼠标侧键：
 整体是事件驱动，按职责拆分：
 
 1. `vibemouse/cli/main.py`
-   - CLI 入口（`run`、`agent run`、`listener run`、`doctor`、`deploy`）
+   - CLI 入口（`run`、`agent run`、`listener run`、`doctor`、`deploy`）；默认 agent 模式为 `listener=child`
 2. `vibemouse/core/app.py`
    - 编排按钮事件、录音状态、转写线程和输出路由
 3. `vibemouse/listener/mouse_listener.py`
@@ -66,6 +66,9 @@ vibemouse doctor
 vibemouse
 ```
 
+默认运行模式是 `listener=child`。只有在排查 listener 子进程问题时，才建议显式使用
+`vibemouse agent run --listener=inline` 作为兼容回退。
+
 设置开机自启：
 ```powershell
 vibemouse deploy
@@ -97,6 +100,9 @@ vibemouse doctor
 vibemouse
 ```
 
+默认运行模式是 `listener=child`。只有在排查 listener 子进程问题时，才建议显式使用
+`vibemouse agent run --listener=inline` 作为兼容回退。
+
 设置 LaunchAgent：
 ```bash
 vibemouse deploy
@@ -126,10 +132,31 @@ pip install -e .
 vibemouse
 ```
 
+这会以默认的 `listener=child` 模式启动 agent。
+
 默认安装走 ONNX 优先，部署体积更小。
 
 - 可选 PyTorch 后端（GPU/高级兜底）：`pip install -e ".[pt]"`
 - 可选 Intel NPU 依赖：`pip install -e ".[npu]"`
+
+### Panel（Step 1）
+
+Avalonia Panel 是 Step 1 的窄边界控制面板：编辑 `config.json`、轮询 `status.json`，并在 agent IPC 在线时发送 `reload_config`、`doctor` 等安全运行时命令。
+
+在仓库根目录运行：
+
+```bash
+dotnet run --project panel/VibeMouse.Panel
+```
+
+构建和发布：
+
+```bash
+dotnet test panel/VibeMouse.Panel.Tests/VibeMouse.Panel.Tests.csproj -c Release
+dotnet publish panel/VibeMouse.Panel -c Release -r win-x64 --self-contained -o dist/panel-windows
+dotnet publish panel/VibeMouse.Panel -c Release -r osx-arm64 --self-contained -o dist/panel-macos
+dotnet publish panel/VibeMouse.Panel -c Release -r linux-x64 --self-contained -o dist/panel-linux
+```
 
 ### 一键自动部署（Linux，推荐）
 

@@ -143,8 +143,10 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>Saves editable fields back to config.json without auto-save.</summary>
-    public void SaveConfig()
+    public void SaveConfig(IReadOnlyDictionary<string, string>? bindings = null)
     {
+        // Preserve fields changed on disk since the panel was opened.
+        _configDocument = _configService.Load();
         // Ensure nested objects exist
         if (_configDocument["transcriber"] is not JsonObject transcriber)
         {
@@ -153,8 +155,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         }
 
         transcriber["backend"]  = Model;
-        if (!string.IsNullOrWhiteSpace(Language))
-            transcriber["language"] = Language;
+        transcriber["language"] = string.IsNullOrWhiteSpace(Language) ? "auto" : Language;
 
         if (_configDocument["logs"] is not JsonObject logs)
         {
@@ -162,6 +163,14 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             _configDocument["logs"] = logs;
         }
         logs["level"] = LogLevel.ToLowerInvariant();
+
+        if (bindings is not null)
+        {
+            var bindingDocument = new JsonObject();
+            foreach (var (eventName, command) in bindings)
+                bindingDocument[eventName] = command;
+            _configDocument["bindings"] = bindingDocument;
+        }
 
         _configService.Save(_configDocument);
     }
@@ -176,6 +185,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public async System.Threading.Tasks.Task RunDoctorAsync()
     {
+        if (!IpcAvailable) return;
         await _agentControl.RunDoctorAsync();
     }
 
