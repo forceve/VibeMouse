@@ -60,6 +60,11 @@
                         </Grid>
 
                         <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,5">
+                            <TextBlock Text="Listener state" Foreground="#A0A0A0" FontSize="13" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" x:Name="ListenerStateText" Text="offline" Foreground="#888888" FontSize="12"/>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,5">
                             <TextBlock Text="Listener mode" Foreground="#A0A0A0" FontSize="13" VerticalAlignment="Center"/>
                             <Border Grid.Column="1" Background="#0AFFFFFF" BorderBrush="#12FFFFFF"
                                     BorderThickness="1" CornerRadius="6" Padding="11,4">
@@ -93,10 +98,10 @@
                             <StackPanel Spacing="3" VerticalAlignment="Center">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <TextBlock Text="🎙️" FontSize="15" VerticalAlignment="Center"/>
-                                    <TextBlock Text="Listener" FontSize="15" FontWeight="Medium" Foreground="#FFFFFFFF"/>
+                                    <TextBlock Text="Edit bindings" FontSize="15" FontWeight="Medium" Foreground="#FFFFFFFF"/>
                                 </StackPanel>
                                 <TextBlock x:Name="ListenerEditStatusText"
-                                           Text="IPC commands only"
+                                           Text="Read-only bindings"
                                            FontSize="12" Foreground="#FF555555"
                                            Margin="23,0,0,0"/>
                             </StackPanel>

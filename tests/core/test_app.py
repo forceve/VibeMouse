@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import tempfile
 import threading
 import unittest
 from collections.abc import Callable
+from collections import deque
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from vibemouse.core.commands import (
     COMMAND_DOCTOR,
@@ -88,7 +90,12 @@ class VoiceMouseAppWorkspaceTests(unittest.TestCase):
             )
             self.assertEqual(
                 payload,
-                {"recording": True, "state": "recording", "listener_mode": "inline"},
+                {
+                    "listener_mode": "inline",
+                    "listener_state": "running",
+                    "recording": True,
+                    "state": "recording",
+                },
             )
 
     def test_set_recording_status_writes_idle_payload(self) -> None:
@@ -109,7 +116,12 @@ class VoiceMouseAppWorkspaceTests(unittest.TestCase):
             )
             self.assertEqual(
                 payload,
-                {"recording": False, "state": "idle", "listener_mode": "inline"},
+                {
+                    "listener_mode": "inline",
+                    "listener_state": "running",
+                    "recording": False,
+                    "state": "idle",
+                },
             )
 
     def test_set_recording_status_includes_ipc_socket_when_command_server_is_running(self) -> None:
@@ -134,10 +146,155 @@ class VoiceMouseAppWorkspaceTests(unittest.TestCase):
                 {
                     "ipc_socket": "test://vibemouse",
                     "listener_mode": "inline",
+                    "listener_state": "running",
                     "recording": False,
                     "state": "idle",
                 },
             )
+
+    def test_set_recording_status_includes_listener_process_details(self) -> None:
+        subject = self._make_subject()
+        with tempfile.TemporaryDirectory(prefix="vibemouse-status-") as tmp:
+            status_file = Path(tmp) / "status.json"
+            setattr(subject, "_config", SimpleNamespace(status_file=status_file))
+            setattr(subject, "_listener_mode", "child")
+            setattr(subject, "_listener_state", "crashed")
+            setattr(subject, "_listener_pid", 4321)
+            setattr(subject, "_listener_last_error", "listener child exited with code 7")
+
+            set_status = cast(
+                Callable[[bool], None],
+                getattr(subject, "_set_recording_status"),
+            )
+            set_status(False)
+
+            payload = cast(
+                dict[str, object],
+                json.loads(status_file.read_text(encoding="utf-8")),
+            )
+
+            self.assertEqual(
+                payload,
+                {
+                    "listener_last_error": "listener child exited with code 7",
+                    "listener_mode": "child",
+                    "listener_pid": 4321,
+                    "listener_state": "crashed",
+                    "recording": False,
+                    "state": "idle",
+                },
+            )
+
+    def test_handle_listener_process_exit_marks_child_as_crashed(self) -> None:
+        subject = self._make_subject()
+        with tempfile.TemporaryDirectory(prefix="vibemouse-status-") as tmp:
+            status_file = Path(tmp) / "status.json"
+            proc = SimpleNamespace(pid=2468)
+            stop_calls: list[bool] = []
+            setattr(subject, "_config", SimpleNamespace(status_file=status_file))
+            setattr(subject, "_listener_mode", "child")
+            setattr(subject, "_listener_process", proc)
+            setattr(subject, "_listener_monitor", None)
+            setattr(subject, "_listener_stderr_monitor", None)
+            setattr(subject, "_listener_shutdown_requested", False)
+            setattr(subject, "_listener_stderr_tail", deque(["permission denied"], maxlen=5))
+            setattr(subject, "_listener_state", "running")
+            setattr(subject, "_listener_pid", 2468)
+            setattr(subject, "_listener_last_error", None)
+            setattr(subject, "_recorder", SimpleNamespace(is_recording=False))
+            setattr(subject, "_ipc_server", SimpleNamespace(stop=lambda: stop_calls.append(True)))
+
+            handle_exit = cast(
+                Callable[[object, int | None], None],
+                getattr(subject, "_handle_listener_process_exit"),
+            )
+            handle_exit(proc, 7)
+
+            payload = cast(
+                dict[str, object],
+                json.loads(status_file.read_text(encoding="utf-8")),
+            )
+
+            self.assertEqual(stop_calls, [True])
+            self.assertIsNone(getattr(subject, "_listener_process"))
+            self.assertEqual(payload["listener_state"], "crashed")
+            self.assertEqual(payload["listener_mode"], "child")
+            self.assertEqual(payload["listener_pid"], 2468)
+            self.assertIn("code 7", cast(str, payload["listener_last_error"]))
+            self.assertIn("permission denied", cast(str, payload["listener_last_error"]))
+
+    def test_drain_listener_stderr_keeps_recent_lines(self) -> None:
+        subject = self._make_subject()
+        setattr(subject, "_listener_stderr_tail", deque(maxlen=5))
+        proc = SimpleNamespace(stderr=io.BytesIO(b"first line\nsecond line\n"))
+
+        drain_stderr = cast(
+            Callable[[object], None],
+            getattr(subject, "_drain_listener_stderr"),
+        )
+
+        with self.assertLogs("vibemouse.core.app", level="ERROR") as captured:
+            drain_stderr(proc)
+
+        self.assertEqual(
+            list(getattr(subject, "_listener_stderr_tail")),
+            ["first line", "second line"],
+        )
+        self.assertTrue(any("Listener child stderr: first line" in line for line in captured.output))
+
+    def test_start_listener_child_uses_pipe_stderr_and_marks_running(self) -> None:
+        subject = self._make_subject()
+        state_updates: list[tuple[str, int | None, str | None]] = []
+        proc = SimpleNamespace(
+            pid=9753,
+            stdin=io.BytesIO(),
+            stdout=io.BytesIO(),
+            stderr=io.BytesIO(),
+        )
+        ipc_server = MagicMock()
+        stderr_thread = MagicMock()
+        monitor_thread = MagicMock()
+        setattr(subject, "_config_path", Path("/tmp/config.json"))
+        setattr(subject, "_handle_input_event", lambda _event: None)
+        setattr(subject, "_listener_shutdown_requested", False)
+        setattr(subject, "_listener_stderr_tail", deque(maxlen=5))
+        setattr(subject, "_listener_process", None)
+        setattr(subject, "_listener_pid", None)
+        setattr(subject, "_ipc_server", None)
+        setattr(subject, "_listener_monitor", None)
+        setattr(subject, "_listener_stderr_monitor", None)
+        setattr(
+            subject,
+            "_set_listener_runtime_state",
+            lambda state, *, pid=None, last_error=None: state_updates.append(
+                (state, pid, last_error)
+            ),
+        )
+
+        with (
+            patch("vibemouse.app.subprocess.Popen", return_value=proc) as popen_mock,
+            patch("vibemouse.app.IPCServer", return_value=ipc_server) as ipc_server_cls,
+            patch(
+                "vibemouse.app.threading.Thread",
+                side_effect=[stderr_thread, monitor_thread],
+            ) as thread_cls,
+        ):
+            start_child = cast(Callable[[], None], getattr(subject, "_start_listener_child"))
+            start_child()
+
+        self.assertEqual(popen_mock.call_args.kwargs["stderr"], subprocess.PIPE)
+        self.assertEqual(state_updates, [("starting", None, None), ("running", 9753, None)])
+        self.assertIs(getattr(subject, "_listener_process"), proc)
+        self.assertEqual(getattr(subject, "_listener_pid"), 9753)
+        ipc_server_cls.assert_called_once_with(
+            reader=proc.stdout,
+            writer=proc.stdin,
+            on_event=getattr(subject, "_handle_input_event"),
+        )
+        ipc_server.start.assert_called_once_with()
+        self.assertEqual(thread_cls.call_count, 2)
+        stderr_thread.start.assert_called_once_with()
+        monitor_thread.start.assert_called_once_with()
 
 
 class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):

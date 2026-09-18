@@ -57,6 +57,36 @@ public sealed class MainViewModelTests : IDisposable
         viewModel.Dispose();
     }
 
+    [Fact]
+    public async Task RunDoctorAsync_DoesNothingWhenIpcIsUnavailable()
+    {
+        var (viewModel, control) = CreateSubject();
+
+        await viewModel.RunDoctorAsync();
+
+        Assert.False(control.DoctorRan);
+        viewModel.Dispose();
+    }
+
+    [Fact]
+    public void SaveConfig_PreservesExternalFieldsAndSavesBindingsTogether()
+    {
+        var (viewModel, _) = CreateSubject();
+        using (viewModel)
+        {
+            File.WriteAllText(_configPath, "{\"custom\":{\"keep\":true}}");
+            viewModel.Language = "";
+            viewModel.SaveConfig(new System.Collections.Generic.Dictionary<string, string>
+            {
+                ["mouse.side_front.press"] = "noop",
+            });
+            var saved = new ConfigService(_configPath).Load();
+            Assert.True(saved["custom"]!["keep"]!.GetValue<bool>());
+            Assert.Equal("auto", saved["transcriber"]!["language"]!.GetValue<string>());
+            Assert.Equal("noop", saved["bindings"]!["mouse.side_front.press"]!.GetValue<string>());
+        }
+    }
+
     private (MainViewModel ViewModel, RecordingAgentControlService Control) CreateSubject()
     {
         var configService = new ConfigService(_configPath);

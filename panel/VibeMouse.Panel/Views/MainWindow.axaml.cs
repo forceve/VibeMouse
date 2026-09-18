@@ -31,7 +31,7 @@ public partial class MainWindow : Window
 
     private static readonly string[] KnownCommands =
     [
-        "—",
+        "Use default",
         "toggle_recording",
         "trigger_secondary_action",
         "submit_recording",
@@ -62,8 +62,10 @@ public partial class MainWindow : Window
         var configPath = ConfigService.DefaultConfigPath();
         _configService = new ConfigService(configPath);
 
-        var statusSvc    = new StatusService(ResolveStatusPath(_configService));
-        var agentControl = new AgentControlService(statusSvc);
+        var statusPath = ResolveStatusPath(_configService);
+        var statusSvc = new StatusService(statusPath);
+        var agentControl = new AgentControlService(statusSvc,
+            AppPaths.ResolveLogDirectory(_configService.ConfigPath, statusPath));
 
         _vm = new MainViewModel(_configService, statusSvc, agentControl);
         _vm.PropertyChanged += (_, e) => Dispatcher.UIThread.Post(() => SyncUi(e.PropertyName));
@@ -104,8 +106,23 @@ public partial class MainWindow : Window
                 : SolidColorBrush.Parse("#888888");
         }
 
-        if (propertyName is null or "ListenerMode")
+        if (propertyName is null or nameof(MainViewModel.ListenerState))
+        {
+            ListenerStateText.Text = _vm.ListenerState;
+            ListenerStateText.Foreground = _vm.ListenerState switch
+            {
+                "running" => SolidColorBrush.Parse("#4ade80"),
+                "starting" => SolidColorBrush.Parse("#f59e0b"),
+                "crashed" => SolidColorBrush.Parse("#ef4444"),
+                "disabled" => SolidColorBrush.Parse("#f59e0b"),
+                _ => SolidColorBrush.Parse("#888888"),
+            };
+        }
+
+        if (propertyName is null or nameof(MainViewModel.ListenerMode))
+        {
             ListenerModeText.Text = _vm.ListenerMode;
+        }
 
         if (propertyName is null or "LastTranscript")
         {
@@ -116,8 +133,8 @@ public partial class MainWindow : Window
         if (propertyName is null or "IpcAvailable")
         {
             ReloadButton.IsEnabled = _vm.IpcAvailable;
-            DoctorButton.IsEnabled = true;
-            IpcHintText.IsVisible  = !_vm.IpcAvailable;
+            DoctorButton.IsEnabled = _vm.IpcAvailable;
+            IpcHintText.IsVisible = !_vm.IpcAvailable;
         }
     }
 
@@ -136,28 +153,13 @@ public partial class MainWindow : Window
         catch { }
     }
 
-    private void SaveBindings()
-    {
-        try
-        {
-            var doc = _configService.Load();
-            var kb  = new JsonObject();
-            foreach (var (k, v) in _bindings)
-                if (!string.IsNullOrEmpty(v) && v != "—")
-                    kb[k] = v;
-            doc["bindings"] = kb;
-            _configService.Save(doc);
-        }
-        catch { }
-    }
-
     private void BuildBindingsList()
     {
         BindingsList.Children.Clear();
 
         foreach (var (evt, label) in KnownEvents)
         {
-            var current = _bindings.TryGetValue(evt, out var v) && !string.IsNullOrEmpty(v) ? v : "—";
+            var current = _bindings.TryGetValue(evt, out var v) && !string.IsNullOrEmpty(v) ? v : "Use default";
 
             var row = new Border
             {
@@ -187,7 +189,7 @@ public partial class MainWindow : Window
                 var combo = new ComboBox
                 {
                     ItemsSource  = KnownCommands,
-                    SelectedItem = KnownCommands.Contains(current) ? current : "—",
+                    SelectedItem = KnownCommands.Contains(current) ? current : "Use default",
                     Width        = 200,
                     Background   = new SolidColorBrush(Color.Parse("#1AFFFFFF")),
                     BorderBrush  = new SolidColorBrush(Color.Parse("#26FFFFFF")),
@@ -196,8 +198,8 @@ public partial class MainWindow : Window
                 };
                 combo.SelectionChanged += (_, _) =>
                 {
-                    var selected = combo.SelectedItem as string ?? "—";
-                    if (selected == "—")
+                    var selected = combo.SelectedItem as string ?? "Use default";
+                    if (selected == "Use default")
                         _bindings.Remove(capturedEvt);
                     else
                         _bindings[capturedEvt] = selected;
@@ -220,7 +222,7 @@ public partial class MainWindow : Window
                 chip.Child = new TextBlock
                 {
                     Text                = current,
-                    Foreground          = current == "—"
+                    Foreground          = current == "Use default"
                         ? new SolidColorBrush(Color.Parse("#2e2e35"))
                         : new SolidColorBrush(Color.Parse("#4a4a50")),
                     FontSize            = 12,
@@ -250,7 +252,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            ListenerEditStatusText.Text       = "IPC commands only";
+            ListenerEditStatusText.Text       = "Read-only bindings";
             ListenerEditStatusText.Foreground = new SolidColorBrush(Color.Parse("#FF555555"));
         }
 
@@ -271,8 +273,16 @@ public partial class MainWindow : Window
 
     private void SaveButton_Click(object? sender, RoutedEventArgs e)
     {
-        _vm.SaveConfig();   // model / language / log level
-        SaveBindings();     // event → command bindings
+        try
+        {
+            _vm.SaveConfig(_bindings);
+        }
+        catch (Exception ex)
+        {
+            ListenerEditStatusText.Text = $"Save failed: {ex.Message}";
+            ListenerEditStatusText.Foreground = SolidColorBrush.Parse("#ef4444");
+            return;
+        }
 
         SaveButton.Content = "Saved ✓";
         DispatcherTimer.RunOnce(() => SaveButton.Content = "Save Config",

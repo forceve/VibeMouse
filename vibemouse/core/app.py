@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import threading
+from collections import deque
 from pathlib import Path
 from typing import Literal
 
@@ -40,6 +41,7 @@ from vibemouse.platform.system_integration import (
 
 
 ListenerMode = Literal["inline", "child", "off"]
+ListenerState = Literal["starting", "running", "crashed", "disabled"]
 TranscriptionTarget = Literal["default", "openclaw"]
 _LOG = logging.getLogger(__name__)
 
@@ -81,7 +83,14 @@ class VoiceMouseApp:
         self._recording_submit_listener: KeyboardHotkeyListener | None = None
         self._ipc_server: IPCServer | None = None
         self._listener_process: subprocess.Popen | None = None
+        self._listener_monitor: threading.Thread | None = None
+        self._listener_stderr_monitor: threading.Thread | None = None
         self._command_server: AgentCommandServer | None = None
+        self._listener_pid: int | None = None
+        self._listener_state: ListenerState = "disabled"
+        self._listener_last_error: str | None = None
+        self._listener_shutdown_requested: bool = False
+        self._listener_stderr_tail: deque[str] = deque(maxlen=5)
 
         self._stop_event: threading.Event = threading.Event()
         self._transcribe_lock: threading.Lock = threading.Lock()
@@ -494,6 +503,9 @@ class VoiceMouseApp:
 
     def _start_listener_child(self) -> None:
         """Spawn listener as subprocess and start IPC server to receive events."""
+        self._listener_shutdown_requested = False
+        self._listener_stderr_tail.clear()
+        self._set_listener_runtime_state("starting")
         cmd = [
             sys.executable,
             "-m",
@@ -509,10 +521,11 @@ class VoiceMouseApp:
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             bufsize=0,
         )
         self._listener_process = proc
+        self._listener_pid = proc.pid
         if proc.stdin is None or proc.stdout is None:
             raise RuntimeError("Failed to create listener subprocess pipes")
         self._ipc_server = IPCServer(
@@ -521,6 +534,20 @@ class VoiceMouseApp:
             on_event=self._handle_input_event,
         )
         self._ipc_server.start()
+        if proc.stderr is not None:
+            self._listener_stderr_monitor = threading.Thread(
+                target=self._drain_listener_stderr,
+                args=(proc,),
+                daemon=True,
+            )
+            self._listener_stderr_monitor.start()
+        self._listener_monitor = threading.Thread(
+            target=self._monitor_listener_process,
+            args=(proc,),
+            daemon=True,
+        )
+        self._listener_monitor.start()
+        self._set_listener_runtime_state("running", pid=proc.pid)
         _LOG.info("Listener child process started (listener_mode=child)")
 
     def _configure_runtime(self, config: AppConfig) -> None:
@@ -590,8 +617,12 @@ class VoiceMouseApp:
             self._keyboard_listener.start()
             if self._recording_submit_listener is not None:
                 self._recording_submit_listener.start()
+            self._set_listener_runtime_state("running")
+            return
+        self._set_listener_runtime_state("disabled")
 
     def _stop_listener_mode(self) -> None:
+        self._listener_shutdown_requested = True
         if self._ipc_server is not None:
             self._ipc_server.send_command(COMMAND_SHUTDOWN)
             self._ipc_server.stop()
@@ -602,6 +633,15 @@ class VoiceMouseApp:
             except subprocess.TimeoutExpired:
                 self._listener_process.kill()
             self._listener_process = None
+        if self._listener_monitor is not None and self._listener_monitor.is_alive():
+            self._listener_monitor.join(timeout=1)
+        self._listener_monitor = None
+        if (
+            self._listener_stderr_monitor is not None
+            and self._listener_stderr_monitor.is_alive()
+        ):
+            self._listener_stderr_monitor.join(timeout=1)
+        self._listener_stderr_monitor = None
         if self._listener is not None:
             self._listener.stop()
             self._listener = None
@@ -611,6 +651,10 @@ class VoiceMouseApp:
         if self._recording_submit_listener is not None:
             self._recording_submit_listener.stop()
             self._recording_submit_listener = None
+        self._listener_process = None
+        self._listener_pid = None
+        self._listener_stderr_tail.clear()
+        self._set_listener_runtime_state("disabled")
 
     def _reload_config(self) -> None:
         if self._recorder.is_recording:
@@ -639,6 +683,85 @@ class VoiceMouseApp:
         _LOG.info("Shutdown command received")
         self._stop_event.set()
 
+    def _drain_listener_stderr(self, proc: subprocess.Popen) -> None:
+        stderr = proc.stderr
+        if stderr is None:
+            return
+        try:
+            while True:
+                line = stderr.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8", errors="replace").strip()
+                if not text:
+                    continue
+                self._listener_stderr_tail.append(text)
+                _LOG.error("Listener child stderr: %s", text)
+        except Exception as error:
+            _LOG.warning("Listener child stderr monitor failed: %s", error)
+        finally:
+            try:
+                stderr.close()
+            except Exception:
+                pass
+
+    def _monitor_listener_process(self, proc: subprocess.Popen) -> None:
+        try:
+            returncode = proc.wait()
+        except Exception as error:
+            _LOG.warning("Listener child monitor failed: %s", error)
+            return
+        self._handle_listener_process_exit(proc, returncode)
+
+    def _handle_listener_process_exit(
+        self,
+        proc: subprocess.Popen,
+        returncode: int | None,
+    ) -> None:
+        if self._listener_process is not proc:
+            return
+        if self._listener_shutdown_requested:
+            return
+
+        detail = f"listener child exited with code {returncode}"
+        if self._listener_stderr_tail:
+            detail += f"; last stderr: {self._listener_stderr_tail[-1]}"
+        _LOG.error("Listener child crashed: %s", detail)
+
+        if self._ipc_server is not None:
+            self._ipc_server.stop()
+            self._ipc_server = None
+        self._listener_process = None
+        self._listener_monitor = None
+        self._listener_stderr_monitor = None
+        self._set_listener_runtime_state(
+            "crashed",
+            pid=getattr(proc, "pid", None),
+            last_error=detail,
+        )
+
+    def _set_listener_runtime_state(
+        self,
+        state: ListenerState,
+        *,
+        pid: int | None = None,
+        last_error: str | None = None,
+    ) -> None:
+        self._listener_state = state
+        self._listener_pid = pid
+        self._listener_last_error = last_error
+        self._refresh_status()
+
+    def _refresh_status(self, *, listener_mode: ListenerMode | None = None) -> None:
+        self._set_recording_status(
+            self._is_recording_active(),
+            listener_mode=listener_mode,
+        )
+
+    def _is_recording_active(self) -> bool:
+        recorder = getattr(self, "_recorder", None)
+        return bool(getattr(recorder, "is_recording", False))
+
     def _set_recording_status(
         self,
         is_recording: bool,
@@ -654,7 +777,14 @@ class VoiceMouseApp:
             "recording": is_recording,
             "state": "recording" if is_recording else "idle",
             "listener_mode": mode,
+            "listener_state": self._default_listener_state_for_mode(mode),
         }
+        listener_pid = getattr(self, "_listener_pid", None)
+        if isinstance(listener_pid, int) and listener_pid > 0:
+            payload["listener_pid"] = listener_pid
+        listener_last_error = getattr(self, "_listener_last_error", None)
+        if isinstance(listener_last_error, str) and listener_last_error:
+            payload["listener_last_error"] = listener_last_error
         command_server = getattr(self, "_command_server", None)
         if command_server is not None:
             endpoint = getattr(command_server, "endpoint", "")
@@ -664,3 +794,11 @@ class VoiceMouseApp:
             write_status(self._config.status_file, payload)
         except Exception:
             return
+
+    def _default_listener_state_for_mode(self, mode: ListenerMode) -> str:
+        state = getattr(self, "_listener_state", None)
+        if isinstance(state, str) and state:
+            return state
+        if mode == "off":
+            return "disabled"
+        return "running"

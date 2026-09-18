@@ -46,7 +46,7 @@ class MainEntryTests(unittest.TestCase):
         self.assertEqual(
             app_ctor.call_args.kwargs,
             {
-                "listener_mode": "inline",
+                "listener_mode": "child",
                 "config_path": "/tmp/config.json",
             },
         )
@@ -58,11 +58,64 @@ class MainEntryTests(unittest.TestCase):
         with (
             patch("vibemouse.main.load_config", return_value=cfg),
             patch("vibemouse.main.resolve_config_path", return_value="/tmp/config.json"),
-            patch("vibemouse.main.VoiceMouseApp", return_value=app_instance),
+            patch("vibemouse.main.VoiceMouseApp", return_value=app_instance) as app_ctor,
         ):
             rc = main(["run"])
 
         self.assertEqual(rc, 0)
+        self.assertEqual(
+            app_ctor.call_args.kwargs,
+            {
+                "listener_mode": "child",
+                "config_path": "/tmp/config.json",
+            },
+        )
+        self.assertEqual(app_instance.run.call_count, 1)
+
+    def test_agent_run_defaults_to_child_listener_mode(self) -> None:
+        app_instance = MagicMock()
+        cfg = SimpleNamespace(log_level="INFO")
+        with (
+            patch("vibemouse.main.load_config", return_value=cfg),
+            patch(
+                "vibemouse.main.resolve_config_path",
+                return_value="/tmp/agent-config.json",
+            ),
+            patch("vibemouse.main.VoiceMouseApp", return_value=app_instance) as app_ctor,
+        ):
+            rc = main(["agent", "run"])
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            app_ctor.call_args.kwargs,
+            {
+                "listener_mode": "child",
+                "config_path": "/tmp/agent-config.json",
+            },
+        )
+        self.assertEqual(app_instance.run.call_count, 1)
+
+    def test_agent_run_inline_mode_is_forwarded_to_app(self) -> None:
+        app_instance = MagicMock()
+        cfg = SimpleNamespace(log_level="INFO")
+        with (
+            patch("vibemouse.main.load_config", return_value=cfg),
+            patch(
+                "vibemouse.main.resolve_config_path",
+                return_value="/tmp/agent-config.json",
+            ),
+            patch("vibemouse.main.VoiceMouseApp", return_value=app_instance) as app_ctor,
+        ):
+            rc = main(["agent", "run", "--listener", "inline"])
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            app_ctor.call_args.kwargs,
+            {
+                "listener_mode": "inline",
+                "config_path": "/tmp/agent-config.json",
+            },
+        )
         self.assertEqual(app_instance.run.call_count, 1)
 
     def test_agent_run_off_mode_is_forwarded_to_app(self) -> None:

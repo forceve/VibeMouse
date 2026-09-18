@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Text.Json;
+using System.Threading.Tasks;
 using VibeMouse.Panel.Services;
 using Xunit;
 
@@ -58,5 +59,48 @@ public class AgentControlServiceTests
         var path = @"\\.\pipe\vibemouse";
         var expected = OperatingSystem.IsWindows();
         Assert.Equal(expected, AgentControlService.IsWindowsNamedPipe(path));
+    }
+
+    [Fact]
+    public async Task RunDoctorAsync_SendsDoctorCommandOverIpc()
+    {
+        var service = new RecordingAgentControlService(
+            new StatusService(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json"))
+        );
+
+        await service.RunDoctorAsync();
+
+        Assert.Equal("doctor", service.LastCommand);
+    }
+
+    [Fact]
+    public void CreateOpenDirectoryStartInfo_UsesCurrentPlatformFileManager()
+    {
+        var directoryPath = Path.GetTempPath();
+
+        var startInfo = AgentControlService.CreateOpenDirectoryStartInfo(directoryPath);
+
+        var expectedCommand = OperatingSystem.IsWindows()
+            ? "explorer.exe"
+            : OperatingSystem.IsMacOS()
+                ? "open"
+                : "xdg-open";
+
+        Assert.Equal(expectedCommand, startInfo.FileName);
+        Assert.False(startInfo.UseShellExecute);
+        Assert.Single(startInfo.ArgumentList);
+        Assert.Equal(directoryPath, startInfo.ArgumentList[0]);
+    }
+
+    private sealed class RecordingAgentControlService(StatusService statusService)
+        : AgentControlService(statusService)
+    {
+        public string? LastCommand { get; private set; }
+
+        public override Task SendCommandAsync(string command)
+        {
+            LastCommand = command;
+            return Task.CompletedTask;
+        }
     }
 }
